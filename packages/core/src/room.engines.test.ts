@@ -236,7 +236,7 @@ describe('Room engine integration branches', () => {
 
     const eventsA = roomA.useEvents({ loopback: false });
     const onMessage = vi.fn();
-    eventsA.on<{ text: string }>('message', onMessage);
+    eventsA.on('message', onMessage);
 
     roomA.useEvents({ loopback: false }).emit('message', { text: 'self' });
     await wait(20);

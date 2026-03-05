@@ -59,6 +59,27 @@ const waitFor = async (condition: () => boolean, timeoutMs = 1_500): Promise<voi
 };
 
 describe('Room events', () => {
+  it('isolates throwing room event callbacks', async () => {
+    const room = createRoom('room-event-isolation', {
+      transport: 'broadcast',
+    });
+
+    const failingCallback = vi.fn(() => {
+      throw new Error('callback failure');
+    });
+    const healthyCallback = vi.fn();
+
+    room.on('connected', failingCallback);
+    room.on('connected', healthyCallback);
+
+    await room.connect();
+
+    expect(failingCallback).toHaveBeenCalledTimes(1);
+    expect(healthyCallback).toHaveBeenCalledTimes(1);
+
+    await room.disconnect();
+  });
+
   it('supports on/off with unsubscribe for room lifecycle events', async () => {
     const room = createRoom('room-event-pattern', {
       transport: 'broadcast',
@@ -183,7 +204,7 @@ describe('Room events', () => {
     const eventsB = roomB.useEvents();
 
     const onReaction = vi.fn();
-    const offReaction = eventsA.on<{ emoji: string }>('reaction', onReaction);
+    const offReaction = eventsA.on('reaction', onReaction);
 
     eventsB.emit('reaction', { emoji: '🔥' });
     await waitFor(() => onReaction.mock.calls.length === 1);
@@ -197,7 +218,7 @@ describe('Room events', () => {
     );
 
     const onWhisper = vi.fn();
-    const offWhisper = eventsA.on<{ text: string }>('whisper', onWhisper);
+    const offWhisper = eventsA.on('whisper', onWhisper);
 
     eventsB.emitTo(roomA.peerId, 'whisper', { text: 'hello' });
     await waitFor(() => onWhisper.mock.calls.length === 1);

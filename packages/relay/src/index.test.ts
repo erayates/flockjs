@@ -8,6 +8,8 @@ interface JsonMessage {
   [key: string]: unknown;
 }
 
+const SOCKET_CLOSE_TIMEOUT_MS = 1_000;
+
 function toUtf8(data: unknown): string {
   if (typeof data === 'string') {
     return data;
@@ -80,9 +82,18 @@ async function closeSocket(socket: WebSocket): Promise<void> {
   }
 
   await new Promise<void>((resolve) => {
-    socket.once('close', () => {
+    const timer = setTimeout(() => {
+      socket.off('close', onClose);
+      socket.terminate();
       resolve();
-    });
+    }, SOCKET_CLOSE_TIMEOUT_MS);
+
+    const onClose = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+
+    socket.once('close', onClose);
     socket.close();
   });
 }
@@ -93,343 +104,360 @@ async function terminateSocket(socket: WebSocket): Promise<void> {
   }
 
   await new Promise<void>((resolve) => {
-    socket.once('close', () => {
+    const timer = setTimeout(() => {
+      socket.off('close', onClose);
       resolve();
-    });
+    }, SOCKET_CLOSE_TIMEOUT_MS);
+
+    const onClose = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+
+    socket.once('close', onClose);
     socket.terminate();
   });
 }
 
-describe('relay signaling server', () => {
-  let relayServer: RelayServer | null = null;
-  const sockets: WebSocket[] = [];
+describe(
+  'relay signaling server',
+  {
+    timeout: 30_000,
+  },
+  () => {
+    let relayServer: RelayServer | null = null;
+    const sockets: WebSocket[] = [];
 
-  afterEach(async () => {
-    for (const socket of sockets) {
-      await closeSocket(socket);
-    }
-    sockets.length = 0;
+    afterEach(async () => {
+      await Promise.all(
+        sockets.map((socket) => {
+          return closeSocket(socket);
+        }),
+      );
 
-    await relayServer?.stop();
-    relayServer = null;
-  });
+      sockets.length = 0;
 
-  it('joins peers into rooms and emits peer-joined', async () => {
-    relayServer = createRelayServer({
-      port: 0,
+      await relayServer?.stop();
+      relayServer = null;
     });
-    await relayServer.start();
 
-    const clientA = new WebSocket(relayServer.getAddress());
-    const clientB = new WebSocket(relayServer.getAddress());
-    sockets.push(clientA, clientB);
+    it('joins peers into rooms and emits peer-joined', async () => {
+      relayServer = createRelayServer({
+        port: 0,
+      });
+      await relayServer.start();
 
-    await waitForOpen(clientA);
-    await waitForOpen(clientB);
+      const clientA = new WebSocket(relayServer.getAddress());
+      const clientB = new WebSocket(relayServer.getAddress());
+      sockets.push(clientA, clientB);
 
-    const joinedA = await sendAndWaitForMessage(
-      clientA,
-      {
-        type: 'join',
+      await waitForOpen(clientA);
+      await waitForOpen(clientB);
+
+      const joinedA = await sendAndWaitForMessage(
+        clientA,
+        {
+          type: 'join',
+          roomId: 'room-join',
+          peerId: 'a',
+        },
+        (message) => message.type === 'joined',
+      );
+      expect(joinedA).toMatchObject({
+        type: 'joined',
         roomId: 'room-join',
         peerId: 'a',
-      },
-      (message) => message.type === 'joined',
-    );
-    expect(joinedA).toMatchObject({
-      type: 'joined',
-      roomId: 'room-join',
-      peerId: 'a',
-      peers: [],
-    });
+        peers: [],
+      });
 
-    const peerJoinedPromise = waitForMessage(
-      clientA,
-      (message) => message.type === 'peer-joined' && message.peerId === 'b',
-    );
-    const joinedB = await sendAndWaitForMessage(
-      clientB,
-      {
-        type: 'join',
+      const peerJoinedPromise = waitForMessage(
+        clientA,
+        (message) => message.type === 'peer-joined' && message.peerId === 'b',
+      );
+      const joinedB = await sendAndWaitForMessage(
+        clientB,
+        {
+          type: 'join',
+          roomId: 'room-join',
+          peerId: 'b',
+        },
+        (message) => message.type === 'joined',
+      );
+      expect(joinedB).toMatchObject({
+        type: 'joined',
         roomId: 'room-join',
         peerId: 'b',
-      },
-      (message) => message.type === 'joined',
-    );
-    expect(joinedB).toMatchObject({
-      type: 'joined',
-      roomId: 'room-join',
-      peerId: 'b',
-      peers: ['a'],
+        peers: ['a'],
+      });
+
+      const peerJoinedA = await peerJoinedPromise;
+      expect(peerJoinedA).toMatchObject({
+        type: 'peer-joined',
+        roomId: 'room-join',
+        peerId: 'b',
+      });
     });
 
-    const peerJoinedA = await peerJoinedPromise;
-    expect(peerJoinedA).toMatchObject({
-      type: 'peer-joined',
-      roomId: 'room-join',
-      peerId: 'b',
+    it('routes signal messages to target peer only', async () => {
+      relayServer = createRelayServer({
+        port: 0,
+      });
+      await relayServer.start();
+
+      const clientA = new WebSocket(relayServer.getAddress());
+      const clientB = new WebSocket(relayServer.getAddress());
+      const clientC = new WebSocket(relayServer.getAddress());
+      sockets.push(clientA, clientB, clientC);
+
+      await Promise.all([waitForOpen(clientA), waitForOpen(clientB), waitForOpen(clientC)]);
+
+      for (const peerId of ['a', 'b', 'c']) {
+        const client = peerId === 'a' ? clientA : peerId === 'b' ? clientB : clientC;
+        send(client, {
+          type: 'join',
+          roomId: 'room-signal',
+          peerId,
+        });
+        await waitForMessage(client, (message) => message.type === 'joined');
+      }
+
+      send(clientA, {
+        type: 'signal',
+        roomId: 'room-signal',
+        fromPeerId: 'a',
+        toPeerId: 'b',
+        description: {
+          type: 'offer',
+          sdp: 'fake-sdp',
+        },
+      });
+
+      const signalB = await waitForMessage(
+        clientB,
+        (message) => message.type === 'signal' && message.fromPeerId === 'a',
+      );
+      expect(signalB).toMatchObject({
+        type: 'signal',
+        roomId: 'room-signal',
+        fromPeerId: 'a',
+        toPeerId: 'b',
+      });
+
+      const noSignalForC = await Promise.race([
+        waitForMessage(clientC, (message) => message.type === 'signal').then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 150)),
+      ]);
+      expect(noSignalForC).toBe(false);
     });
-  });
 
-  it('routes signal messages to target peer only', async () => {
-    relayServer = createRelayServer({
-      port: 0,
+    it('emits peer-left when a peer disconnects', async () => {
+      relayServer = createRelayServer({
+        port: 0,
+      });
+      await relayServer.start();
+
+      const clientA = new WebSocket(relayServer.getAddress());
+      const clientB = new WebSocket(relayServer.getAddress());
+      sockets.push(clientA, clientB);
+
+      await waitForOpen(clientA);
+      await waitForOpen(clientB);
+
+      send(clientA, {
+        type: 'join',
+        roomId: 'room-leave',
+        peerId: 'a',
+      });
+      await waitForMessage(clientA, (message) => message.type === 'joined');
+
+      send(clientB, {
+        type: 'join',
+        roomId: 'room-leave',
+        peerId: 'b',
+      });
+      await waitForMessage(clientB, (message) => message.type === 'joined');
+
+      const peerLeftPromise = waitForMessage(
+        clientA,
+        (message) => message.type === 'peer-left' && message.peerId === 'b',
+      );
+      await terminateSocket(clientB);
+      const peerLeft = await peerLeftPromise;
+      expect(peerLeft).toMatchObject({
+        type: 'peer-left',
+        roomId: 'room-leave',
+        peerId: 'b',
+      });
     });
-    await relayServer.start();
 
-    const clientA = new WebSocket(relayServer.getAddress());
-    const clientB = new WebSocket(relayServer.getAddress());
-    const clientC = new WebSocket(relayServer.getAddress());
-    sockets.push(clientA, clientB, clientC);
+    it('returns protocol error on invalid messages', async () => {
+      relayServer = createRelayServer({
+        port: 0,
+      });
+      await relayServer.start();
 
-    await Promise.all([waitForOpen(clientA), waitForOpen(clientB), waitForOpen(clientC)]);
+      const client = new WebSocket(relayServer.getAddress());
+      sockets.push(client);
+      await waitForOpen(client);
 
-    for (const peerId of ['a', 'b', 'c']) {
-      const client = peerId === 'a' ? clientA : peerId === 'b' ? clientB : clientC;
+      client.send('{"invalid":true}');
+      const error = await waitForMessage(client, (message) => message.type === 'error');
+      expect(error).toMatchObject({
+        type: 'error',
+        code: 'INVALID_MESSAGE',
+      });
+    });
+
+    it('rejects unauthorized joins', async () => {
+      relayServer = createRelayServer({
+        port: 0,
+        authorize: async ({ token }) => token === 'allow',
+      });
+      await relayServer.start();
+
+      const client = new WebSocket(relayServer.getAddress());
+      sockets.push(client);
+      await waitForOpen(client);
+
       send(client, {
         type: 'join',
-        roomId: 'room-signal',
-        peerId,
+        roomId: 'room-auth',
+        peerId: 'peer-a',
+        token: 'deny',
       });
-      await waitForMessage(client, (message) => message.type === 'joined');
-    }
 
-    send(clientA, {
-      type: 'signal',
-      roomId: 'room-signal',
-      fromPeerId: 'a',
-      toPeerId: 'b',
-      description: {
-        type: 'offer',
-        sdp: 'fake-sdp',
-      },
+      const error = await waitForMessage(client, (message) => message.type === 'error');
+      expect(error).toMatchObject({
+        type: 'error',
+        code: 'AUTH_FAILED',
+      });
     });
 
-    const signalB = await waitForMessage(
-      clientB,
-      (message) => message.type === 'signal' && message.fromPeerId === 'a',
-    );
-    expect(signalB).toMatchObject({
-      type: 'signal',
-      roomId: 'room-signal',
-      fromPeerId: 'a',
-      toPeerId: 'b',
-    });
+    it('validates join and signal invariants', async () => {
+      relayServer = createRelayServer({
+        port: 0,
+      });
+      await relayServer.start();
 
-    const noSignalForC = await Promise.race([
-      waitForMessage(clientC, (message) => message.type === 'signal').then(() => true),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 150)),
-    ]);
-    expect(noSignalForC).toBe(false);
-  });
+      const clientA = new WebSocket(relayServer.getAddress());
+      const clientB = new WebSocket(relayServer.getAddress());
+      sockets.push(clientA, clientB);
 
-  it('emits peer-left when a peer disconnects', async () => {
-    relayServer = createRelayServer({
-      port: 0,
-    });
-    await relayServer.start();
+      await waitForOpen(clientA);
+      await waitForOpen(clientB);
 
-    const clientA = new WebSocket(relayServer.getAddress());
-    const clientB = new WebSocket(relayServer.getAddress());
-    sockets.push(clientA, clientB);
-
-    await waitForOpen(clientA);
-    await waitForOpen(clientB);
-
-    send(clientA, {
-      type: 'join',
-      roomId: 'room-leave',
-      peerId: 'a',
-    });
-    await waitForMessage(clientA, (message) => message.type === 'joined');
-
-    send(clientB, {
-      type: 'join',
-      roomId: 'room-leave',
-      peerId: 'b',
-    });
-    await waitForMessage(clientB, (message) => message.type === 'joined');
-
-    const peerLeftPromise = waitForMessage(
-      clientA,
-      (message) => message.type === 'peer-left' && message.peerId === 'b',
-    );
-    await terminateSocket(clientB);
-    const peerLeft = await peerLeftPromise;
-    expect(peerLeft).toMatchObject({
-      type: 'peer-left',
-      roomId: 'room-leave',
-      peerId: 'b',
-    });
-  });
-
-  it('returns protocol error on invalid messages', async () => {
-    relayServer = createRelayServer({
-      port: 0,
-    });
-    await relayServer.start();
-
-    const client = new WebSocket(relayServer.getAddress());
-    sockets.push(client);
-    await waitForOpen(client);
-
-    client.send('{"invalid":true}');
-    const error = await waitForMessage(client, (message) => message.type === 'error');
-    expect(error).toMatchObject({
-      type: 'error',
-      code: 'INVALID_MESSAGE',
-    });
-  });
-
-  it('rejects unauthorized joins', async () => {
-    relayServer = createRelayServer({
-      port: 0,
-      authorize: async ({ token }) => token === 'allow',
-    });
-    await relayServer.start();
-
-    const client = new WebSocket(relayServer.getAddress());
-    sockets.push(client);
-    await waitForOpen(client);
-
-    send(client, {
-      type: 'join',
-      roomId: 'room-auth',
-      peerId: 'peer-a',
-      token: 'deny',
-    });
-
-    const error = await waitForMessage(client, (message) => message.type === 'error');
-    expect(error).toMatchObject({
-      type: 'error',
-      code: 'AUTH_FAILED',
-    });
-  });
-
-  it('validates join and signal invariants', async () => {
-    relayServer = createRelayServer({
-      port: 0,
-    });
-    await relayServer.start();
-
-    const clientA = new WebSocket(relayServer.getAddress());
-    const clientB = new WebSocket(relayServer.getAddress());
-    sockets.push(clientA, clientB);
-
-    await waitForOpen(clientA);
-    await waitForOpen(clientB);
-
-    const notJoinedError = await sendAndWaitForMessage(
-      clientA,
-      {
-        type: 'signal',
-        roomId: 'room-checks',
-        fromPeerId: 'peer-a',
-        toPeerId: 'peer-b',
-        description: {
-          type: 'offer',
-          sdp: 'v=0',
+      const notJoinedError = await sendAndWaitForMessage(
+        clientA,
+        {
+          type: 'signal',
+          roomId: 'room-checks',
+          fromPeerId: 'peer-a',
+          toPeerId: 'peer-b',
+          description: {
+            type: 'offer',
+            sdp: 'v=0',
+          },
         },
-      },
-      (message) => message.type === 'error',
-    );
-    expect(notJoinedError).toMatchObject({
-      code: 'NOT_JOINED',
-    });
+        (message) => message.type === 'error',
+      );
+      expect(notJoinedError).toMatchObject({
+        code: 'NOT_JOINED',
+      });
 
-    await sendAndWaitForMessage(
-      clientA,
-      {
-        type: 'join',
-        roomId: 'room-checks',
-        peerId: 'peer-a',
-      },
-      (message) => message.type === 'joined',
-    );
-
-    const alreadyJoinedError = await sendAndWaitForMessage(
-      clientA,
-      {
-        type: 'join',
-        roomId: 'room-checks',
-        peerId: 'peer-z',
-      },
-      (message) => message.type === 'error',
-    );
-    expect(alreadyJoinedError).toMatchObject({
-      code: 'ALREADY_JOINED',
-    });
-
-    const peerExistsError = await sendAndWaitForMessage(
-      clientB,
-      {
-        type: 'join',
-        roomId: 'room-checks',
-        peerId: 'peer-a',
-      },
-      (message) => message.type === 'error',
-    );
-    expect(peerExistsError).toMatchObject({
-      code: 'PEER_EXISTS',
-    });
-
-    await sendAndWaitForMessage(
-      clientB,
-      {
-        type: 'join',
-        roomId: 'room-checks',
-        peerId: 'peer-b',
-      },
-      (message) => message.type === 'joined',
-    );
-
-    const roomMismatchError = await sendAndWaitForMessage(
-      clientA,
-      {
-        type: 'signal',
-        roomId: 'room-other',
-        fromPeerId: 'peer-a',
-        toPeerId: 'peer-b',
-        description: {
-          type: 'offer',
-          sdp: 'v=0',
+      await sendAndWaitForMessage(
+        clientA,
+        {
+          type: 'join',
+          roomId: 'room-checks',
+          peerId: 'peer-a',
         },
-      },
-      (message) => message.type === 'error',
-    );
-    expect(roomMismatchError).toMatchObject({
-      code: 'ROOM_MISMATCH',
-    });
+        (message) => message.type === 'joined',
+      );
 
-    const senderMismatchError = await sendAndWaitForMessage(
-      clientA,
-      {
-        type: 'signal',
-        roomId: 'room-checks',
-        fromPeerId: 'peer-not-a',
-        toPeerId: 'peer-b',
-        description: {
-          type: 'offer',
-          sdp: 'v=0',
+      const alreadyJoinedError = await sendAndWaitForMessage(
+        clientA,
+        {
+          type: 'join',
+          roomId: 'room-checks',
+          peerId: 'peer-z',
         },
-      },
-      (message) => message.type === 'error',
-    );
-    expect(senderMismatchError).toMatchObject({
-      code: 'PEER_MISMATCH',
-    });
+        (message) => message.type === 'error',
+      );
+      expect(alreadyJoinedError).toMatchObject({
+        code: 'ALREADY_JOINED',
+      });
 
-    const leaveMismatchError = await sendAndWaitForMessage(
-      clientA,
-      {
-        type: 'leave',
-        roomId: 'room-checks',
-        peerId: 'peer-not-a',
-      },
-      (message) => message.type === 'error',
-    );
-    expect(leaveMismatchError).toMatchObject({
-      code: 'PEER_MISMATCH',
+      const peerExistsError = await sendAndWaitForMessage(
+        clientB,
+        {
+          type: 'join',
+          roomId: 'room-checks',
+          peerId: 'peer-a',
+        },
+        (message) => message.type === 'error',
+      );
+      expect(peerExistsError).toMatchObject({
+        code: 'PEER_EXISTS',
+      });
+
+      await sendAndWaitForMessage(
+        clientB,
+        {
+          type: 'join',
+          roomId: 'room-checks',
+          peerId: 'peer-b',
+        },
+        (message) => message.type === 'joined',
+      );
+
+      const roomMismatchError = await sendAndWaitForMessage(
+        clientA,
+        {
+          type: 'signal',
+          roomId: 'room-other',
+          fromPeerId: 'peer-a',
+          toPeerId: 'peer-b',
+          description: {
+            type: 'offer',
+            sdp: 'v=0',
+          },
+        },
+        (message) => message.type === 'error',
+      );
+      expect(roomMismatchError).toMatchObject({
+        code: 'ROOM_MISMATCH',
+      });
+
+      const senderMismatchError = await sendAndWaitForMessage(
+        clientA,
+        {
+          type: 'signal',
+          roomId: 'room-checks',
+          fromPeerId: 'peer-not-a',
+          toPeerId: 'peer-b',
+          description: {
+            type: 'offer',
+            sdp: 'v=0',
+          },
+        },
+        (message) => message.type === 'error',
+      );
+      expect(senderMismatchError).toMatchObject({
+        code: 'PEER_MISMATCH',
+      });
+
+      const leaveMismatchError = await sendAndWaitForMessage(
+        clientA,
+        {
+          type: 'leave',
+          roomId: 'room-checks',
+          peerId: 'peer-not-a',
+        },
+        (message) => message.type === 'error',
+      );
+      expect(leaveMismatchError).toMatchObject({
+        code: 'PEER_MISMATCH',
+      });
     });
-  });
-});
+  },
+);

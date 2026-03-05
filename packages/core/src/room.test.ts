@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createRoom } from './index';
+import { createRoom, FlockError } from './index';
 
 const wait = (ms: number): Promise<void> => {
   return new Promise((resolve) => {
@@ -54,7 +54,10 @@ describe('createRoom', () => {
       transport: 'websocket',
     });
 
-    await expect(room.connect()).rejects.toMatchObject({
+    const connectPromise = room.connect();
+
+    await expect(connectPromise).rejects.toBeInstanceOf(FlockError);
+    await expect(connectPromise).rejects.toMatchObject({
       code: 'NETWORK_ERROR',
       recoverable: false,
     });
@@ -67,7 +70,10 @@ describe('createRoom', () => {
       relayUrl: 'ws://localhost:8787',
     });
 
-    await expect(room.connect()).rejects.toMatchObject({
+    const connectPromise = room.connect();
+
+    await expect(connectPromise).rejects.toBeInstanceOf(FlockError);
+    await expect(connectPromise).rejects.toMatchObject({
       code: 'NETWORK_ERROR',
       recoverable: false,
     });
@@ -107,5 +113,34 @@ describe('createRoom', () => {
       writable: true,
       value: originalBroadcastChannel,
     });
+  });
+
+  it('falls back to non-randomUUID peer ids when crypto.randomUUID is unavailable', () => {
+    const originalCrypto = globalThis.crypto;
+    const fallbackCrypto = {
+      ...originalCrypto,
+      randomUUID: undefined,
+    };
+
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      writable: true,
+      value: fallbackCrypto,
+    });
+
+    try {
+      const roomA = createRoom('room-peerid-fallback-a');
+      const roomB = createRoom('room-peerid-fallback-b');
+
+      expect(roomA.peerId).toMatch(/^peer-[a-z0-9]+-[a-z0-9]+$/);
+      expect(roomB.peerId).toMatch(/^peer-[a-z0-9]+-[a-z0-9]+$/);
+      expect(roomA.peerId).not.toBe(roomB.peerId);
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', {
+        configurable: true,
+        writable: true,
+        value: originalCrypto,
+      });
+    }
   });
 });
