@@ -1,5 +1,4 @@
 import type { IncomingMessage } from 'node:http';
-import type { AddressInfo } from 'node:net';
 
 import { type RawData, type WebSocket, WebSocketServer } from 'ws';
 
@@ -93,7 +92,7 @@ export class RelayServerImpl implements RelayServer {
         server.off('error', onError);
         const address = server.address();
         if (address && typeof address !== 'string') {
-          this.currentPort = (address as AddressInfo).port;
+          this.currentPort = address.port;
         }
         resolve();
       };
@@ -183,14 +182,12 @@ export class RelayServerImpl implements RelayServer {
       return;
     }
 
-    if (message.type === 'signal') {
-      if (message.fromPeerId !== context.peerId) {
-        this.sendError(socket, 'PEER_MISMATCH', 'Signal sender peerId mismatch.');
-        return;
-      }
-
-      this.forwardSignal(context.roomId, message);
+    if (message.fromPeerId !== context.peerId) {
+      this.sendError(socket, 'PEER_MISMATCH', 'Signal sender peerId mismatch.');
+      return;
     }
+
+    this.forwardSignal(context.roomId, message);
   }
 
   private async handleJoinMessage(
@@ -205,15 +202,12 @@ export class RelayServerImpl implements RelayServer {
     }
 
     if (this.options.authorize) {
-      const authorizeContext = {
+      const authorizeContext: RelayAuthorizeContext = {
         roomId: message.roomId,
         peerId: message.peerId,
         request,
-      } as RelayAuthorizeContext;
-
-      if (message.token !== undefined) {
-        authorizeContext.token = message.token;
-      }
+        ...(message.token !== undefined ? { token: message.token } : {}),
+      };
 
       const allowed = await this.options.authorize(authorizeContext);
 
