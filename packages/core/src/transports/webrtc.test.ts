@@ -266,12 +266,17 @@ describe('WebRTCTransportAdapter', () => {
 
     const peerConnection = MockRTCPeerConnection.instances[0] as MockRTCPeerConnection;
     const signalingClient = signalingInstances[0] as MockSignalingClient;
+    const dataChannel = peerConnection.dataChannels[0] as MockRTCDataChannel;
 
     expect(peerConnection.configuration.iceServers).toEqual([
       {
         urls: 'stun:stun.l.google.com:19302',
       },
     ]);
+    expect(signalingClient.options.joinTimeoutMs).toBe(5_000);
+    expect(dataChannel.label).toBe('flockjs-v1');
+    expect(dataChannel.options.ordered).toBe(true);
+    expect(dataChannel.options.maxRetransmits).toBeUndefined();
 
     expect(signalingClient.sentSignals.some((item) => item.description?.type === 'offer')).toBe(
       true,
@@ -295,7 +300,6 @@ describe('WebRTCTransportAdapter', () => {
       },
     });
 
-    const dataChannel = peerConnection.dataChannels[0] as MockRTCDataChannel;
     await waitFor(() => dataChannel.sent.length > 0);
 
     const hello = parseEnvelope(dataChannel.sent[0] as string);
@@ -533,14 +537,14 @@ describe('WebRTCTransportAdapter', () => {
     await adapter.connect();
     await waitFor(() => onSignal.mock.calls.length >= 2, 1_000);
 
+    expect(signalingInstances[0]?.options.joinTimeoutMs).toBe(25);
+
     const emittedSignals = onSignal.mock.calls.map((entry) => entry[0]) as Array<
       Record<string, unknown>
     >;
     expect(
       emittedSignals.some(
-        (signal) =>
-          signal.type === 'event' &&
-          (signal.payload as { event?: { name?: string } }).event?.name === '__transport:error__',
+        (signal) => signal.type === 'transport:error' && typeof signal.payload === 'object',
       ),
     ).toBe(true);
     expect(
@@ -579,7 +583,7 @@ describe('WebRTCTransportAdapter', () => {
     await adapter.disconnect();
   });
 
-  it('emits transport error signal when signaling disconnects', async () => {
+  it('emits transport disconnected signal when signaling disconnects', async () => {
     const { createWebRTCTransportAdapter } = await import('./webrtc');
 
     connectPeersQueue.push([]);
@@ -599,9 +603,12 @@ describe('WebRTCTransportAdapter', () => {
 
     expect(onSignal).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'event',
+        type: 'transport:disconnected',
         roomId: 'room-disconnected',
         fromPeerId: 'peer-a',
+        payload: {
+          reason: 'socket-gone',
+        },
       }),
     );
 

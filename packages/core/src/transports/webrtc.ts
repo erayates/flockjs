@@ -225,7 +225,7 @@ export class WebRTCTransportAdapter<
       },
       onDisconnected: (reason?: string) => {
         this.connected = false;
-        this.emitErrorSignal(toFlockError(reason ?? 'Signaling channel disconnected.'));
+        this.emitDisconnectedSignal(reason ?? 'Signaling channel disconnected.');
       },
       ...(this.options.relayAuth !== undefined ? { relayAuth: this.options.relayAuth } : {}),
     };
@@ -619,17 +619,22 @@ export class WebRTCTransportAdapter<
 
   private emitErrorSignal(error: FlockError): void {
     this.emitTransportSignal({
-      type: 'event',
+      type: 'transport:error',
       roomId: this.roomId,
       fromPeerId: this.peerId,
       payload: {
-        event: {
-          name: '__transport:error__',
-          payload: {
-            code: error.code,
-            message: error.message,
-          },
-        },
+        error,
+      },
+    });
+  }
+
+  private emitDisconnectedSignal(reason: string): void {
+    this.emitTransportSignal({
+      type: 'transport:disconnected',
+      roomId: this.roomId,
+      fromPeerId: this.peerId,
+      payload: {
+        reason,
       },
     });
   }

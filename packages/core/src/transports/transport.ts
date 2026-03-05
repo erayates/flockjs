@@ -9,7 +9,9 @@ export type TransportSignalType =
   | 'leave'
   | 'cursor:update'
   | 'awareness:update'
-  | 'event';
+  | 'event'
+  | 'transport:error'
+  | 'transport:disconnected';
 
 export interface TransportSignal {
   type: TransportSignalType;

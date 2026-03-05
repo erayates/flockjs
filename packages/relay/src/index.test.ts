@@ -243,10 +243,132 @@ describe(
         toPeerId: 'b',
       });
 
-      const noSignalForC = await Promise.race([
-        waitForMessage(clientC, (message) => message.type === 'signal').then(() => true),
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 150)),
-      ]);
+      const noSignalForC = await waitForMessage(
+        clientC,
+        (message) => message.type === 'signal',
+        150,
+      )
+        .then(() => true)
+        .catch(() => false);
+      expect(noSignalForC).toBe(false);
+    });
+
+    it('routes offer, answer, and candidate payloads for WebRTC signaling', async () => {
+      relayServer = createRelayServer({
+        port: 0,
+      });
+      await relayServer.start();
+
+      const clientA = new WebSocket(relayServer.getAddress());
+      const clientB = new WebSocket(relayServer.getAddress());
+      const clientC = new WebSocket(relayServer.getAddress());
+      sockets.push(clientA, clientB, clientC);
+
+      await Promise.all([waitForOpen(clientA), waitForOpen(clientB), waitForOpen(clientC)]);
+
+      for (const peerId of ['a', 'b', 'c']) {
+        const client = peerId === 'a' ? clientA : peerId === 'b' ? clientB : clientC;
+        send(client, {
+          type: 'join',
+          roomId: 'room-webrtc-signal',
+          peerId,
+        });
+        await waitForMessage(client, (message) => message.type === 'joined');
+      }
+
+      send(clientA, {
+        type: 'signal',
+        roomId: 'room-webrtc-signal',
+        fromPeerId: 'a',
+        toPeerId: 'b',
+        description: {
+          type: 'offer',
+          sdp: 'offer-sdp',
+        },
+      });
+
+      const offerAtB = await waitForMessage(
+        clientB,
+        (message) =>
+          message.type === 'signal' &&
+          message.fromPeerId === 'a' &&
+          (message.description as { type?: string } | undefined)?.type === 'offer',
+      );
+      expect(offerAtB).toMatchObject({
+        type: 'signal',
+        roomId: 'room-webrtc-signal',
+        fromPeerId: 'a',
+        toPeerId: 'b',
+        description: {
+          type: 'offer',
+          sdp: 'offer-sdp',
+        },
+      });
+
+      send(clientB, {
+        type: 'signal',
+        roomId: 'room-webrtc-signal',
+        fromPeerId: 'b',
+        toPeerId: 'a',
+        description: {
+          type: 'answer',
+          sdp: 'answer-sdp',
+        },
+      });
+
+      const answerAtA = await waitForMessage(
+        clientA,
+        (message) =>
+          message.type === 'signal' &&
+          message.fromPeerId === 'b' &&
+          (message.description as { type?: string } | undefined)?.type === 'answer',
+      );
+      expect(answerAtA).toMatchObject({
+        type: 'signal',
+        roomId: 'room-webrtc-signal',
+        fromPeerId: 'b',
+        toPeerId: 'a',
+        description: {
+          type: 'answer',
+          sdp: 'answer-sdp',
+        },
+      });
+
+      send(clientA, {
+        type: 'signal',
+        roomId: 'room-webrtc-signal',
+        fromPeerId: 'a',
+        toPeerId: 'b',
+        candidate: {
+          candidate: 'candidate:1',
+          sdpMid: '0',
+          sdpMLineIndex: 0,
+        },
+      });
+
+      const candidateAtB = await waitForMessage(
+        clientB,
+        (message) => message.type === 'signal' && message.fromPeerId === 'a' && !!message.candidate,
+      );
+      expect(candidateAtB).toMatchObject({
+        type: 'signal',
+        roomId: 'room-webrtc-signal',
+        fromPeerId: 'a',
+        toPeerId: 'b',
+        candidate: {
+          candidate: 'candidate:1',
+          sdpMid: '0',
+          sdpMLineIndex: 0,
+        },
+      });
+
+      const noSignalForC = await waitForMessage(
+        clientC,
+        (message) => message.type === 'signal',
+        150,
+      )
+        .then(() => true)
+        .catch(() => false);
       expect(noSignalForC).toBe(false);
     });
 

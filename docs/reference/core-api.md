@@ -44,7 +44,8 @@ Transport support in EP-02 `#011`:
 - `webrtc` requires `relayUrl` for SDP/ICE signaling.
 - Default STUN server: `stun:stun.l.google.com:19302` (override with `stunUrls`).
 - Default ICE gather timeout: `5000ms` (override with `webrtc.iceGatherTimeoutMs`).
-- DataChannel default: ordered and reliable delivery.
+- DataChannel default: ordered and reliable delivery (`ordered: true`, no `maxRetransmits` set).
+- `maxPeers` is a hard cap for WebRTC mesh peer-connection context creation.
 - BroadcastChannel transport uses a serialized JSON envelope (`source: "flockjs"`, `version: 1`).
 - In browser environments, room lifecycle automatically handles `beforeunload` and `pagehide` to trigger disconnect and propagate peer leave.
 
@@ -82,7 +83,7 @@ room.on('peer:update', (peer) => {});
 
 // Connection lifecycle
 room.on('connected', () => {});
-room.on('disconnected', (reason) => {});
+room.on('disconnected', ({ reason }) => {});
 room.on('reconnecting', (attempt) => {});
 room.on('error', (error) => {});
 
@@ -90,6 +91,11 @@ room.on('error', (error) => {});
 room.on('room:full', () => {});
 room.on('room:empty', () => {});
 ```
+
+Connection event semantics:
+
+- `error`: emitted when transport/runtime errors are surfaced to room lifecycle.
+- `disconnected`: emitted for manual disconnect and transport-level disconnects with a reason payload.
 
 ## Minimal Flow
 

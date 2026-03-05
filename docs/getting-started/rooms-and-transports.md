@@ -23,8 +23,11 @@ A `room` is the primary collaboration scope in FlockJS.
 
 - Start with `transport: 'auto'` for same-tab baseline behavior.
 - Use `transport: 'webrtc'` with `relayUrl` for cross-machine collaboration.
-- Set explicit `maxPeers` for WebRTC mesh safety
-- Configure your own STUN/TURN infrastructure for production
+- Keep `maxPeers` explicit for mesh safety (for example `maxPeers: 8`).
+- Default STUN fallback is Google public STUN (`stun:stun.l.google.com:19302`) when `stunUrls` is omitted.
+- Default ICE gather timeout is `5000ms` (`webrtc.iceGatherTimeoutMs`).
+- Default DataChannel behavior is ordered and reliable (`ordered: true`, no `maxRetransmits` override).
+- Configure your own STUN/TURN infrastructure for production.
 - Keep `websocket` mode reserved for future releases (planned).
 
 ## BroadcastChannel Notes
@@ -51,6 +54,7 @@ const room = createRoom('doc-123', {
     return token;
   },
   stunUrls: ['stun:stun.example.com:3478'],
+  maxPeers: 8,
   webrtc: {
     iceGatherTimeoutMs: 5000,
     dataChannel: { ordered: true, protocol: 'flockjs-v1' },
@@ -63,6 +67,7 @@ const room = createRoom('doc-123', {
 - Up to about 8-12 peers: WebRTC mesh is usually acceptable
 - 10+ peers consistently: evaluate relay mode
 - 100+ peers: run multiple relay instances with shared backend coordination
+- If rooms regularly exceed your `maxPeers` setting, move those workloads off mesh transport.
 
 ## Related Docs
 

@@ -148,6 +148,10 @@ function isRoomSignalPayload<TPresence extends PresenceData>(
   return isObject(payload);
 }
 
+function isInternalTransportSignal(signal: TransportSignal): boolean {
+  return signal.type === 'transport:error' || signal.type === 'transport:disconnected';
+}
+
 export class RoomImpl<TPresence extends PresenceData = PresenceData> implements Room<TPresence> {
   public readonly id: string;
 
@@ -284,14 +288,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     await this.transport.disconnect();
     this.transport = null;
 
-    this.remotePeers.clear();
-    this.cursorPositions.clear();
-    this.awarenessByPeer.clear();
-    this.awarenessByPeer.set(this.peerId, { peerId: this.peerId });
-
-    this.notifyPeerSubscribers();
-    this.notifyCursorSubscribers();
-    this.notifyAwarenessSubscribers();
+    this.clearRemoteState();
 
     this.setStatus('disconnected');
     this.roomEventEmitter.emit('disconnected', { reason: 'manual' });
@@ -547,7 +544,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       return false;
     }
 
-    if (signal.fromPeerId === this.peerId) {
+    if (signal.fromPeerId === this.peerId && !isInternalTransportSignal(signal)) {
       return false;
     }
 
@@ -593,6 +590,12 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
         return;
       case 'event':
         this.handleCustomEventSignal(signal.fromPeerId, payload);
+        return;
+      case 'transport:error':
+        this.handleTransportErrorSignal(payload);
+        return;
+      case 'transport:disconnected':
+        void this.handleTransportDisconnectedSignal(payload);
         return;
       default:
         return;
@@ -662,6 +665,42 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     this.emitCustomEvent(event.name, event.payload, fromPeer);
   }
 
+  private handleTransportErrorSignal(payload: RoomSignalPayload<TPresence>): void {
+    const errorValue = isObject(payload) ? Reflect.get(payload, 'error') : payload;
+    const flockError = toTransportError(errorValue);
+    this.roomEventEmitter.emit('error', flockError);
+  }
+
+  private async handleTransportDisconnectedSignal(
+    payload: RoomSignalPayload<TPresence>,
+  ): Promise<void> {
+    if (!this.transport && this.currentStatus === 'disconnected') {
+      return;
+    }
+
+    this.unregisterUnloadHandlers();
+
+    const reason = isObject(payload)
+      ? (readString(payload, 'reason') ?? 'transport-disconnected')
+      : 'transport-disconnected';
+
+    this.transportUnsubscribe?.();
+    this.transportUnsubscribe = null;
+
+    const transport = this.transport;
+    this.transport = null;
+
+    if (transport) {
+      await transport.disconnect().catch(() => {
+        return undefined;
+      });
+    }
+
+    this.clearRemoteState();
+    this.setStatus('disconnected');
+    this.roomEventEmitter.emit('disconnected', { reason });
+  }
+
   private sendSignal(signal: Omit<TransportSignal, 'roomId' | 'fromPeerId'>): void {
     if (!this.transport) {
       return;
@@ -704,6 +743,17 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     }
 
     this.notifyPeerSubscribers();
+  }
+
+  private clearRemoteState(): void {
+    this.remotePeers.clear();
+    this.cursorPositions.clear();
+    this.awarenessByPeer.clear();
+    this.awarenessByPeer.set(this.peerId, { peerId: this.peerId });
+
+    this.notifyPeerSubscribers();
+    this.notifyCursorSubscribers();
+    this.notifyAwarenessSubscribers();
   }
 
   private removeRemotePeer(peerId: string): void {
