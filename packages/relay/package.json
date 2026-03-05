@@ -12,6 +12,7 @@
       "default": "./dist/index.js"
     }
   },
+  "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "eslint src --max-warnings 0",
@@ -22,6 +23,7 @@
     "test:watch": "vitest --config ../../vitest.package.config.ts"
   },
   "dependencies": {
+    "zod": "^3.24.1",
     "ws": "^8.18.0"
   },
   "publishConfig": {

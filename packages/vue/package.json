@@ -12,6 +12,7 @@
       "default": "./dist/index.js"
     }
   },
+  "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "eslint src --max-warnings 0",
@@ -19,6 +20,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rimraf dist coverage",
     "test:watch": "vitest --config ../../vitest.package.config.ts"
+  },
+  "dependencies": {
+    "@flockjs/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "vue": ">=3.0.0"
   },
   "publishConfig": {
     "access": "public"
