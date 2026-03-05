@@ -17,7 +17,21 @@ export default [
     rules: {
       'simple-import-sort/imports': 'error',
       'simple-import-sort/exports': 'error',
+      '@typescript-eslint/no-explicit-any': 'error',
+      curly: ['error', 'all'],
+      eqeqeq: ['error', 'always'],
+      'no-eval': 'error',
+      'no-implied-eval': 'error',
+      'no-new-func': 'error',
+      'no-var': 'error',
       'no-console': 'off',
+      'prefer-const': [
+        'error',
+        {
+          destructuring: 'all',
+          ignoreReadBeforeAssign: true,
+        },
+      ],
     },
   },
   eslintConfigPrettier,

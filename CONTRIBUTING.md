@@ -133,6 +133,7 @@ CI validates each PR to `main` on Node `18` and `20` with this stage order:
 - Keep changes small and reviewable.
 - Prefer explicit types over `any`.
 - Maintain strict TypeScript compatibility (`strict` mode; no weakening compiler options).
+- Follow project conventions in `docs/project/code-conventions.md`.
 - Preserve backward compatibility where possible; call out breaking changes clearly.
 - Add comments only where logic is non-obvious.
 - Keep import statements sorted (enforced by ESLint `simple-import-sort`).
@@ -222,4 +223,5 @@ Do not file security issues publicly. Use the workflow in [SECURITY.md](SECURITY
 - [Support](SUPPORT.md)
 - [Governance](GOVERNANCE.md)
 - [Documentation style guide](docs/STYLE_GUIDE.md)
+- [Code conventions](docs/project/code-conventions.md)
 - [Project development setup](docs/project/development-setup.md)
