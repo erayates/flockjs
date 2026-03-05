@@ -33,15 +33,29 @@ export interface FlockError extends Error {
 }
 
 export type Unsubscribe = () => void;
+
+export type RelayAuthToken = string | (() => string | Promise<string>);
+
+export interface WebRTCDataChannelOptions {
+  ordered?: boolean;
+  maxRetransmits?: number;
+  protocol?: string;
+}
+
+export interface WebRTCOptions {
+  iceGatherTimeoutMs?: number;
+  dataChannel?: WebRTCDataChannelOptions;
+}
 ```
 
-EP-02 `#010` baseline note:
+EP-02 `#011` baseline note:
 
 - `RoomStatus`, `Peer`, and `FlockError` are now implemented in the core runtime.
 - Broadcast-based peer discovery is available via `transport: 'auto' | 'broadcast'`.
+- WebRTC mesh transport is available via `transport: 'webrtc'` with relay signaling.
 - BroadcastChannel payloads are serialized and validated via a versioned JSON envelope.
 - Browser room instances auto-register unload handlers (`beforeunload`, `pagehide`) to propagate `peer:leave`.
-- `webrtc` and `websocket` transport paths remain planned.
+- `websocket` transport path remains planned.
 
 ## Engine Option Types
 

@@ -28,8 +28,18 @@ await room.connect();
 
 Transport support in the current baseline:
 
-- Available: `auto`, `broadcast`
-- Planned: `webrtc`, `websocket`
+- Available: `auto`, `broadcast`, `webrtc`
+- Planned: `websocket`
+
+WebRTC cross-machine baseline:
+
+```ts
+const room = createRoom('my-first-room', {
+  transport: 'webrtc',
+  relayUrl: 'ws://localhost:8787',
+  presence: { name: 'Alice', color: '#4F46E5' },
+});
+```
 
 ## 3) Track Peers with Presence
 

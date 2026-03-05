@@ -12,19 +12,20 @@ A `room` is the primary collaboration scope in FlockJS.
 
 ## Transport Modes
 
-| Transport   | Typical use                                 | Server required                              | Notes                                  |
-| ----------- | ------------------------------------------- | -------------------------------------------- | -------------------------------------- |
-| `webrtc`    | small collaborative rooms                   | No app server (STUN/TURN infra still needed) | Best default for low-latency peer sync |
-| `broadcast` | same-browser, same-origin tabs              | No                                           | JSON-envelope messaging + unload-aware leave handling |
-| `websocket` | larger rooms or strict network environments | Yes (`@flockjs/relay`)                       | Centralized relay path                 |
-| `auto`      | choose best available option                | Depends on fallback path                     | Recommended starting mode              |
+| Transport   | Typical use                                 | Server required          | Notes                                                 |
+| ----------- | ------------------------------------------- | ------------------------ | ----------------------------------------------------- |
+| `webrtc`    | small collaborative rooms across machines   | Yes (signaling relay)    | P2P DataChannel mesh after signaling                  |
+| `broadcast` | same-browser, same-origin tabs              | No                       | JSON-envelope messaging + unload-aware leave handling |
+| `websocket` | larger rooms or strict network environments | Yes (`@flockjs/relay`)   | Planned transport mode                                |
+| `auto`      | choose best available option                | Depends on fallback path | Recommended starting mode                             |
 
 ## Recommended Defaults
 
-- Start with `transport: 'auto'`
+- Start with `transport: 'auto'` for same-tab baseline behavior.
+- Use `transport: 'webrtc'` with `relayUrl` for cross-machine collaboration.
 - Set explicit `maxPeers` for WebRTC mesh safety
 - Configure your own STUN/TURN infrastructure for production
-- Switch to relay mode as room sizes increase
+- Keep `websocket` mode reserved for future releases (planned).
 
 ## BroadcastChannel Notes
 
@@ -39,12 +40,21 @@ WebRTC discovery uses ICE and commonly requires STUN/TURN:
 - TURN relays traffic when direct peer connection fails
 - TURN is strongly recommended for enterprise/private networks
 
-Example:
+WebRTC baseline example:
 
 ```ts
 const room = createRoom('doc-123', {
   transport: 'webrtc',
-  stunUrls: ['stun:stun.example.com:3478', 'turn:turn.example.com:3478?transport=udp'],
+  relayUrl: 'ws://localhost:8787',
+  relayAuth: async () => {
+    const token = await getRelayToken();
+    return token;
+  },
+  stunUrls: ['stun:stun.example.com:3478'],
+  webrtc: {
+    iceGatherTimeoutMs: 5000,
+    dataChannel: { ordered: true, protocol: 'flockjs-v1' },
+  },
 });
 ```
 

@@ -39,11 +39,19 @@ Additional integration workflow (planned):
 pnpm test:integration
 ```
 
+Run local relay signaling server for WebRTC validation:
+
+```bash
+pnpm --filter @flockjs/relay build
+pnpm --filter @flockjs/relay start
+```
+
 ## Working Norms
 
 - Prefer small, focused PRs.
 - Keep docs and tests in the same PR as behavior changes.
 - Preserve strict TypeScript compatibility.
+- Follow the canonical [code conventions](code-conventions.md) policy.
 - Keep imports sorted and lint-clean before commit.
 - Run Prettier checks before opening a PR.
 - Keep package unit tests in `src/**/*.test.ts` for Vitest convention consistency.
@@ -80,11 +88,14 @@ Use `--no-verify` only for emergency situations.
 - If `pnpm typecheck` passes but `pnpm typecheck:root` fails, verify root `tsconfig.json` includes only intended sources and excludes tests/build output.
 - If coverage output is missing, confirm tests are under `packages/*/src/**/*.test.ts` and rerun `pnpm test`.
 - If releases fail before publish, confirm `NPM_TOKEN` is configured in repository secrets.
+- If WebRTC peers do not connect, verify `relayUrl` points to a reachable `@flockjs/relay` instance and check browser console ICE errors.
 
 ## Related Docs
 
 - [Contributing](../../CONTRIBUTING.md)
+- [Code conventions](code-conventions.md)
 - [Repository structure](repository-structure.md)
+- [WebRTC validation checklist](webrtc-validation.md)
 - [Labeling and triage](labeling-and-triage.md)
 - [Release process](release-process.md)
 - [Docs index](../README.md)

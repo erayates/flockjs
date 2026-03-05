@@ -41,6 +41,8 @@ FlockJS is under active development. API contracts and examples here define the 
 
 - [Repository structure](project/repository-structure.md)
 - [Development setup](project/development-setup.md)
+- [Code conventions](project/code-conventions.md)
+- [WebRTC validation](project/webrtc-validation.md)
 - [Execution plan](project/execution-plan.md)
 - [Labeling and triage](project/labeling-and-triage.md)
 - [Release process](project/release-process.md)

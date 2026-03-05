@@ -2,20 +2,25 @@
 
 Audience: users.
 
-## CRDT with Yjs
-
-Use CRDT mode when concurrent edits must survive merges.
+## WebRTC with Relay Signaling (Available Baseline)
 
 ```ts
 import { createRoom } from '@flockjs/core';
-import * as Y from 'yjs';
 
-const room = createRoom('doc-room', { transport: 'auto' });
-await room.connect();
-
-const ydoc = room.getYDoc();
-const yText = ydoc.getText('editor-content');
-yText.insert(0, 'Hello');
+const room = createRoom('doc-room', {
+  transport: 'webrtc',
+  relayUrl: 'ws://localhost:8787',
+  relayAuth: async () => {
+    const res = await fetch('/api/flock-token');
+    const body = await res.json();
+    return body.token;
+  },
+  stunUrls: ['stun:stun.l.google.com:19302'],
+  webrtc: {
+    iceGatherTimeoutMs: 5000,
+    dataChannel: { ordered: true, protocol: 'flockjs-v1' },
+  },
+});
 ```
 
 ## End-to-End Encryption
@@ -33,20 +38,21 @@ Security notes:
 
 - Distribute keys/passphrases out-of-band.
 - Never hardcode production secrets in frontend code.
+- End-to-end payload encryption semantics are planned for deeper EP-03/EP-05 implementation.
 
-## Relay Mode (`@flockjs/relay`)
+## Relay Signaling Server (`@flockjs/relay`)
 
 ```ts
-const room = createRoom('large-room', {
-  transport: 'websocket',
-  relayUrl: 'wss://relay.example.com',
-  relayAuth: async () => {
-    const res = await fetch('/api/flock-token');
-    const body = await res.json();
-    return body.token;
-  },
+import { createRelayServer } from '@flockjs/relay';
+
+const relay = createRelayServer({
+  port: 8787,
 });
+
+await relay.start();
 ```
+
+The relay package in EP-02 `#011` is a signaling baseline for WebRTC SDP/ICE exchange.
 
 ## Reconnection
 
@@ -60,6 +66,12 @@ const room = createRoom('my-room', {
   },
 });
 ```
+
+Reconnect strategy fields are available in `RoomOptions`; automatic reconnection behavior is planned for subsequent transport hardening.
+
+## CRDT with Yjs (Planned)
+
+CRDT/Yjs runtime integration is not shipped in this baseline. Treat CRDT strategy references as forward-looking API direction.
 
 ## Auth Pattern
 

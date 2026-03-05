@@ -22,16 +22,29 @@ interface RoomOptions {
   maxPeers?: number;
   stunUrls?: string[];
   relayUrl?: string;
+  relayAuth?: string | (() => string | Promise<string>);
+  webrtc?: {
+    iceGatherTimeoutMs?: number;
+    dataChannel?: {
+      ordered?: boolean;
+      maxRetransmits?: number;
+      protocol?: string;
+    };
+  };
   reconnect?: boolean | ReconnectOptions;
   encryption?: boolean | EncryptionOptions;
   debug?: boolean | DebugOptions;
 }
 ```
 
-Transport support in EP-02 `#010`:
+Transport support in EP-02 `#011`:
 
-- Available baseline: `auto`, `broadcast`
-- Planned: `webrtc`, `websocket`
+- Available baseline: `auto`, `broadcast`, `webrtc`
+- Planned: `websocket`
+- `webrtc` requires `relayUrl` for SDP/ICE signaling.
+- Default STUN server: `stun:stun.l.google.com:19302` (override with `stunUrls`).
+- Default ICE gather timeout: `5000ms` (override with `webrtc.iceGatherTimeoutMs`).
+- DataChannel default: ordered and reliable delivery.
 - BroadcastChannel transport uses a serialized JSON envelope (`source: "flockjs"`, `version: 1`).
 - In browser environments, room lifecycle automatically handles `beforeunload` and `pagehide` to trigger disconnect and propagate peer leave.
 
@@ -84,10 +97,15 @@ room.on('room:empty', () => {});
 import { createRoom } from '@flockjs/core';
 
 const room = createRoom('doc-abc123', {
-  transport: 'auto',
+  transport: 'webrtc',
   presence: { name: 'Alice', color: '#7C3AED' },
   maxPeers: 10,
-  relayUrl: 'wss://relay.example.com',
+  relayUrl: 'ws://localhost:8787',
+  relayAuth: async () => 'signed-token',
+  webrtc: {
+    iceGatherTimeoutMs: 5000,
+    dataChannel: { ordered: true, protocol: 'flockjs-v1' },
+  },
   reconnect: { maxAttempts: 5, backoffMs: 1000 },
 });
 
