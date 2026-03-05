@@ -102,8 +102,14 @@ pnpm install
 pnpm build
 pnpm lint
 pnpm typecheck
+pnpm typecheck:root
 pnpm test
 ```
+
+Type checking is split intentionally:
+
+- `pnpm typecheck`: runs per-workspace checks through Turbo.
+- `pnpm typecheck:root`: runs a root `tsc --noEmit` over `packages/*` and `apps/*`.
 
 ### Workspace Layout
 

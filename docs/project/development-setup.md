@@ -23,7 +23,8 @@ pnpm build
 pnpm test
 pnpm lint
 pnpm typecheck
-pnpm dev
+pnpm typecheck:root
+pnpm typecheck:all
 ```
 
 Additional integration workflow (planned):
@@ -42,6 +43,7 @@ pnpm test:integration
 
 - If workspace linking fails, reinstall dependencies from repository root.
 - If type errors look stale, clear local build artifacts and rerun typecheck.
+- If `pnpm typecheck` passes but `pnpm typecheck:root` fails, verify root `tsconfig.json` includes only intended sources and excludes tests/build output.
 
 ## Related Docs
 

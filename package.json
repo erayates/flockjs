@@ -8,6 +8,9 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
+    "typecheck:root": "tsc --noEmit -p tsconfig.json",
+    "typecheck:all": "pnpm run typecheck && pnpm run typecheck:root",
+    "verify:tsconfig-extends": "node scripts/verify-tsconfig-extends.mjs",
     "clean": "turbo run clean"
   },
   "devDependencies": {
