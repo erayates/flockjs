@@ -2,8 +2,8 @@ import type { EventEngine, EventOptions, Peer, PresenceData, Unsubscribe } from 
 
 interface EventEngineContext<TPresence extends PresenceData> {
   emitEvent(name: string, payload: unknown, toPeerId: string | undefined, loopback: boolean): void;
-  onEvent<T = unknown>(name: string, cb: (payload: T, from: Peer<TPresence>) => void): Unsubscribe;
-  offEvent<T = unknown>(name: string, cb: (payload: T, from: Peer<TPresence>) => void): void;
+  onEvent(name: string, cb: (payload: unknown, from: Peer<TPresence>) => void): Unsubscribe;
+  offEvent(name: string, cb: (payload: unknown, from: Peer<TPresence>) => void): void;
 }
 
 export function createEventEngine<TPresence extends PresenceData>(

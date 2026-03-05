@@ -1,14 +1,14 @@
 import type { Unsubscribe } from './types';
 
 type EventMapBase = object;
-type EventHandler<TValue> = TValue extends void ? () => void : (payload: TValue) => void;
+type EventHandler<TValue> = (payload: TValue) => void;
 
 export class TypedEventEmitter<TEvents extends EventMapBase> {
-  private readonly listeners: {
+  private listeners: {
     [TEvent in keyof TEvents]?: Set<EventHandler<TEvents[TEvent]>>;
   } = {};
 
-  on<TEvent extends keyof TEvents>(
+  public on<TEvent extends keyof TEvents>(
     event: TEvent,
     handler: EventHandler<TEvents[TEvent]>,
   ): Unsubscribe {
@@ -21,7 +21,10 @@ export class TypedEventEmitter<TEvents extends EventMapBase> {
     };
   }
 
-  off<TEvent extends keyof TEvents>(event: TEvent, handler: EventHandler<TEvents[TEvent]>): void {
+  public off<TEvent extends keyof TEvents>(
+    event: TEvent,
+    handler: EventHandler<TEvents[TEvent]>,
+  ): void {
     const listenersForEvent = this.listeners[event];
     if (!listenersForEvent) {
       return;
@@ -33,24 +36,22 @@ export class TypedEventEmitter<TEvents extends EventMapBase> {
     }
   }
 
-  emit<TEvent extends keyof TEvents>(event: TEvent, payload?: TEvents[TEvent]): void {
+  public emit<TEvent extends keyof TEvents>(event: TEvent, payload: TEvents[TEvent]): void {
     const listenersForEvent = this.listeners[event];
     if (!listenersForEvent || listenersForEvent.size === 0) {
       return;
     }
 
     for (const listener of listenersForEvent) {
-      if (payload === undefined) {
-        (listener as () => void)();
-      } else {
-        (listener as (value: TEvents[TEvent]) => void)(payload);
+      try {
+        listener(payload);
+      } catch {
+        // Isolate consumer callback failures from emitter internals.
       }
     }
   }
 
-  clear(): void {
-    for (const key of Object.keys(this.listeners) as Array<keyof TEvents>) {
-      delete this.listeners[key];
-    }
+  public clear(): void {
+    this.listeners = {};
   }
 }

@@ -5,19 +5,7 @@ function cloneValue<T>(value: T): T {
     return structuredClone(value);
   }
 
-  if (value === null || typeof value !== 'object') {
-    return value;
-  }
-
-  try {
-    return JSON.parse(JSON.stringify(value)) as T;
-  } catch {
-    if (Array.isArray(value)) {
-      return [...value] as unknown as T;
-    }
-
-    return { ...(value as Record<string, unknown>) } as T;
-  }
+  return value;
 }
 
 function isMergeableObject(value: unknown): value is Record<string, unknown> {
@@ -51,17 +39,15 @@ export function createStateEngine<T>(options: StateOptions<T>): StateEngine<T> {
       notify('set');
     },
     patch(partial) {
-      if (isMergeableObject(value) && isMergeableObject(partial)) {
-        history.push(cloneValue(value));
-        value = {
-          ...value,
-          ...partial,
-        } as T;
-      } else {
-        history.push(cloneValue(value));
-        value = partial as T;
+      if (!isMergeableObject(value) || !isMergeableObject(partial)) {
+        return;
       }
 
+      history.push(cloneValue(value));
+      value = {
+        ...value,
+        ...partial,
+      };
       notify('patch');
     },
     subscribe(cb) {

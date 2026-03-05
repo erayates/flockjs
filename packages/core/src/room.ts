@@ -4,7 +4,9 @@ import { createEventEngine } from './engines/events';
 import { createPresenceEngine } from './engines/presence';
 import { createStateEngine } from './engines/state';
 import { TypedEventEmitter } from './event-emitter';
-import { createFlockError } from './flock-error';
+import { createFlockError, FlockError } from './flock-error';
+import { createRuntimePeerId, getWindowEventTarget, type WindowEventTarget } from './internal/env';
+import { isObject, readBoolean, readNumber, readString } from './internal/guards';
 import { selectTransportAdapter } from './transports/select-transport';
 import type { TransportAdapter, TransportSignal } from './transports/transport';
 import type {
@@ -15,7 +17,6 @@ import type {
   CursorPosition,
   EventEngine,
   EventOptions,
-  FlockError,
   Peer,
   PresenceData,
   PresenceEngine,
@@ -31,12 +32,6 @@ import type {
 } from './types';
 
 const LOCKED_PRESENCE_KEYS = new Set(['id', 'joinedAt', 'lastSeen']);
-const FLOCK_ERROR_CODES = new Set<FlockError['code']>([
-  'ROOM_FULL',
-  'AUTH_FAILED',
-  'NETWORK_ERROR',
-  'ENCRYPTION_ERROR',
-]);
 
 interface EventMessagePayload {
   name: string;
@@ -58,37 +53,13 @@ interface ConnectContext {
 type PeerEventCallback<TPresence extends PresenceData> = (peers: Peer<TPresence>[]) => void;
 type CursorCallback = (positions: CursorPosition[]) => void;
 type AwarenessCallback = (peers: AwarenessState[]) => void;
-type WindowEventTarget = Pick<Window, 'addEventListener' | 'removeEventListener'>;
 type InternalEventCallback<TPresence extends PresenceData> = (
   payload: unknown,
   from: Peer<TPresence>,
 ) => void;
 
-function createPeerId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-
-  return `peer-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
 function isFlockError(value: unknown): value is FlockError {
-  if (!(value instanceof Error) || !isRecord(value)) {
-    return false;
-  }
-
-  const code = value.code;
-  const recoverable = value.recoverable;
-
-  return (
-    typeof code === 'string' &&
-    FLOCK_ERROR_CODES.has(code as FlockError['code']) &&
-    typeof recoverable === 'boolean'
-  );
+  return value instanceof FlockError;
 }
 
 function toTransportError(error: unknown): FlockError {
@@ -114,28 +85,67 @@ function sanitizePresencePatch<TPresence extends PresenceData>(
       continue;
     }
 
-    (sanitized as Record<string, unknown>)[key] = value;
+    Reflect.set(sanitized, key, value);
   }
 
   return sanitized;
 }
 
-function parsePeerPayload<TPresence extends PresenceData>(
+function isPeerPayload<TPresence extends PresenceData>(
   payload: unknown,
-): Peer<TPresence> | null {
-  if (!isRecord(payload)) {
-    return null;
+): payload is Peer<TPresence> {
+  if (!isObject(payload)) {
+    return false;
   }
 
   const id = payload.id;
   const joinedAt = payload.joinedAt;
   const lastSeen = payload.lastSeen;
 
-  if (typeof id !== 'string' || typeof joinedAt !== 'number' || typeof lastSeen !== 'number') {
+  return typeof id === 'string' && typeof joinedAt === 'number' && typeof lastSeen === 'number';
+}
+
+function parsePeerPayload<TPresence extends PresenceData>(
+  payload: unknown,
+): Peer<TPresence> | null {
+  if (!isPeerPayload<TPresence>(payload)) {
     return null;
   }
 
-  return payload as Peer<TPresence>;
+  return payload;
+}
+
+function parseCursorPosition(payload: unknown, fromPeerId: string): CursorPosition | null {
+  if (!isObject(payload)) {
+    return null;
+  }
+
+  const x = readNumber(payload, 'x') ?? 0;
+  const y = readNumber(payload, 'y') ?? 0;
+  const xAbsolute = readNumber(payload, 'xAbsolute') ?? x;
+  const yAbsolute = readNumber(payload, 'yAbsolute') ?? y;
+  const name = readString(payload, 'name')?.trim() || fromPeerId;
+  const color = readString(payload, 'color')?.trim() || '#4F46E5';
+  const element = readString(payload, 'element');
+  const idle = readBoolean(payload, 'idle') ?? false;
+
+  return {
+    userId: fromPeerId,
+    name,
+    color,
+    x,
+    y,
+    xAbsolute,
+    yAbsolute,
+    idle,
+    ...(element ? { element } : {}),
+  };
+}
+
+function isRoomSignalPayload<TPresence extends PresenceData>(
+  payload: unknown,
+): payload is RoomSignalPayload<TPresence> {
+  return isObject(payload);
 }
 
 export class RoomImpl<TPresence extends PresenceData = PresenceData> implements Room<TPresence> {
@@ -196,7 +206,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   public constructor(roomId: string, options: RoomOptions<TPresence> = {}) {
     this.id = roomId;
     this.options = options;
-    this.peerId = createPeerId();
+    this.peerId = createRuntimePeerId();
 
     const now = Date.now();
     const initialPresence = sanitizePresencePatch(options.presence ?? {});
@@ -206,7 +216,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       joinedAt: now,
       lastSeen: now,
       ...initialPresence,
-    } as Peer<TPresence>;
+    };
 
     this.awarenessByPeer.set(this.peerId, { peerId: this.peerId });
   }
@@ -420,15 +430,15 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
         onEvent: (name, callback) => {
           const handlers =
             this.customEventHandlers.get(name) ?? new Set<InternalEventCallback<TPresence>>();
-          handlers.add(callback as InternalEventCallback<TPresence>);
+          handlers.add(callback);
           this.customEventHandlers.set(name, handlers);
 
           return () => {
-            this.removeCustomEventHandler(name, callback as InternalEventCallback<TPresence>);
+            this.removeCustomEventHandler(name, callback);
           };
         },
         offEvent: (name, callback) => {
-          this.removeCustomEventHandler(name, callback as InternalEventCallback<TPresence>);
+          this.removeCustomEventHandler(name, callback);
         },
       },
       options,
@@ -439,14 +449,14 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     event: TEvent,
     cb: RoomEventHandler<TPresence, TEvent>,
   ): Unsubscribe {
-    return this.roomEventEmitter.on(event, cb as RoomEventHandler<TPresence, TEvent>);
+    return this.roomEventEmitter.on(event, cb);
   }
 
   public off<TEvent extends RoomEventName>(
     event: TEvent,
     cb: RoomEventHandler<TPresence, TEvent>,
   ): void {
-    this.roomEventEmitter.off(event, cb as RoomEventHandler<TPresence, TEvent>);
+    this.roomEventEmitter.off(event, cb);
   }
 
   private async connectInternal(context: ConnectContext): Promise<void> {
@@ -471,7 +481,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       this.hasConnectedBefore = true;
       this.reconnectAttempt = 0;
       this.setStatus('connected');
-      this.roomEventEmitter.emit('connected');
+      this.roomEventEmitter.emit('connected', undefined);
       this.notifyPeerSubscribers();
 
       this.sendSignal({
@@ -496,27 +506,12 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     this.currentStatus = status;
   }
 
-  private getWindowEventTarget(): WindowEventTarget | null {
-    if (typeof window === 'undefined') {
-      return null;
-    }
-
-    if (
-      typeof window.addEventListener !== 'function' ||
-      typeof window.removeEventListener !== 'function'
-    ) {
-      return null;
-    }
-
-    return window;
-  }
-
   private registerUnloadHandlers(): void {
     if (this.unloadHandlersRegistered) {
       return;
     }
 
-    const eventTarget = this.getWindowEventTarget();
+    const eventTarget = getWindowEventTarget();
     if (!eventTarget) {
       return;
     }
@@ -565,11 +560,11 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private getSignalPayload(signal: TransportSignal): RoomSignalPayload<TPresence> {
     const payload = signal.payload;
-    if (!payload || !isRecord(payload)) {
+    if (!payload || !isRoomSignalPayload<TPresence>(payload)) {
       return {};
     }
 
-    return payload as RoomSignalPayload<TPresence>;
+    return payload;
   }
 
   private handleSignal(signal: TransportSignal): void {
@@ -630,15 +625,10 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   }
 
   private handleCursorSignal(fromPeerId: string, payload: RoomSignalPayload<TPresence>): void {
-    const cursor = payload.cursor;
-    if (!cursor || !isRecord(cursor)) {
+    const normalized = parseCursorPosition(payload.cursor, fromPeerId);
+    if (!normalized) {
       return;
     }
-
-    const normalized = {
-      ...(cursor as CursorPosition),
-      userId: fromPeerId,
-    } as CursorPosition;
 
     this.cursorPositions.set(fromPeerId, normalized);
     this.notifyCursorSubscribers();
@@ -646,7 +636,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private handleAwarenessSignal(fromPeerId: string, payload: RoomSignalPayload<TPresence>): void {
     const awareness = payload.awareness;
-    if (!awareness || !isRecord(awareness)) {
+    if (!awareness || !isObject(awareness)) {
       return;
     }
 
@@ -660,7 +650,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private handleCustomEventSignal(fromPeerId: string, payload: RoomSignalPayload<TPresence>): void {
     const event = payload.event;
-    if (!event || !isRecord(event) || typeof event.name !== 'string') {
+    if (!event || !isObject(event) || typeof event.name !== 'string') {
       return;
     }
 
@@ -696,7 +686,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       ...existing,
       ...peer,
       id: peer.id,
-      joinedAt: peer.joinedAt ?? existing?.joinedAt ?? now,
+      joinedAt: existing?.joinedAt ?? peer.joinedAt,
       lastSeen: now,
     };
 
@@ -710,7 +700,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
     const maxPeers = this.options.maxPeers;
     if (maxPeers !== undefined && this.remotePeers.size + 1 >= maxPeers) {
-      this.roomEventEmitter.emit('room:full');
+      this.roomEventEmitter.emit('room:full', undefined);
     }
 
     this.notifyPeerSubscribers();
@@ -729,7 +719,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     this.roomEventEmitter.emit('peer:leave', existing);
 
     if (this.remotePeers.size === 0) {
-      this.roomEventEmitter.emit('room:empty');
+      this.roomEventEmitter.emit('room:empty', undefined);
     }
 
     this.notifyPeerSubscribers();
@@ -753,7 +743,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       joinedAt: this.selfPeer.joinedAt,
       lastSeen: Date.now(),
       ...sanitized,
-    } as Peer<TPresence>);
+    });
   }
 
   private applySelfPresence(next: Peer<TPresence>): void {
@@ -845,8 +835,12 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   }
 
   private getPeerDisplayName(peer: Peer<TPresence>): string {
-    const value = (peer as Record<string, unknown>).name;
-    if (typeof value === 'string' && value.trim().length > 0) {
+    if (typeof peer.name === 'string' && peer.name.trim().length > 0) {
+      return peer.name;
+    }
+
+    const value = readString(peer, 'name');
+    if (value && value.trim().length > 0) {
       return value;
     }
 
@@ -854,8 +848,12 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   }
 
   private getPeerColor(peer: Peer<TPresence>): string {
-    const value = (peer as Record<string, unknown>).color;
-    if (typeof value === 'string' && value.trim().length > 0) {
+    if (typeof peer.color === 'string' && peer.color.trim().length > 0) {
+      return peer.color;
+    }
+
+    const value = readString(peer, 'color');
+    if (value && value.trim().length > 0) {
       return value;
     }
 

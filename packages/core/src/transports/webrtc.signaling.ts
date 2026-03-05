@@ -1,4 +1,5 @@
 import { createFlockError } from '../flock-error';
+import { env } from '../internal/env';
 import type { FlockError, RelayAuthToken } from '../types';
 import {
   parseSignalingServerMessage,
@@ -54,7 +55,7 @@ function resolveWebSocketFactory(factory?: WebSocketFactory): WebSocketFactory {
     return factory;
   }
 
-  if (typeof WebSocket === 'undefined') {
+  if (!env.hasWebSocket) {
     throw createFlockError(
       'NETWORK_ERROR',
       'WebSocket is required for WebRTC signaling but is not available in this runtime.',

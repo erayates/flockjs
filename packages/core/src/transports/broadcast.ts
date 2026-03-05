@@ -1,8 +1,10 @@
+import { env } from '../internal/env';
+import { isObject } from '../internal/guards';
 import type { TransportAdapter, TransportSignal } from './transport';
 
 const BROADCAST_SOURCE = 'flockjs';
 const BROADCAST_VERSION = 1;
-const TRANSPORT_SIGNAL_TYPES = new Set<TransportSignal['type']>([
+const TRANSPORT_SIGNAL_TYPES = new Set<string>([
   'hello',
   'welcome',
   'presence:update',
@@ -18,23 +20,30 @@ interface BroadcastEnvelope {
   signal: TransportSignal;
 }
 
+function isTransportSignalType(value: unknown): value is TransportSignal['type'] {
+  return typeof value === 'string' && TRANSPORT_SIGNAL_TYPES.has(value);
+}
+
 function isTransportSignal(value: unknown): value is TransportSignal {
-  if (typeof value !== 'object' || value === null) {
+  if (!isObject(value)) {
     return false;
   }
 
-  const maybeSignal = value as Partial<TransportSignal>;
+  const type = value.type;
+  const roomId = value.roomId;
+  const fromPeerId = value.fromPeerId;
+  const toPeerId = value.toPeerId;
+
   return (
-    typeof maybeSignal.type === 'string' &&
-    TRANSPORT_SIGNAL_TYPES.has(maybeSignal.type as TransportSignal['type']) &&
-    typeof maybeSignal.roomId === 'string' &&
-    typeof maybeSignal.fromPeerId === 'string' &&
-    (maybeSignal.toPeerId === undefined || typeof maybeSignal.toPeerId === 'string')
+    isTransportSignalType(type) &&
+    typeof roomId === 'string' &&
+    typeof fromPeerId === 'string' &&
+    (toPeerId === undefined || typeof toPeerId === 'string')
   );
 }
 
 export function isBroadcastChannelAvailable(): boolean {
-  return typeof BroadcastChannel !== 'undefined';
+  return env.hasBroadcastChannel;
 }
 
 function serializeSignal(signal: TransportSignal): string {
@@ -59,20 +68,19 @@ function deserializeSignal(payload: unknown): TransportSignal | null {
     return null;
   }
 
-  if (typeof parsed !== 'object' || parsed === null) {
+  if (!isObject(parsed)) {
     return null;
   }
 
-  const envelope = parsed as Partial<BroadcastEnvelope>;
-  if (envelope.source !== BROADCAST_SOURCE || envelope.version !== BROADCAST_VERSION) {
+  if (parsed.source !== BROADCAST_SOURCE || parsed.version !== BROADCAST_VERSION) {
     return null;
   }
 
-  if (!isTransportSignal(envelope.signal)) {
+  if (!isTransportSignal(parsed.signal)) {
     return null;
   }
 
-  return envelope.signal;
+  return parsed.signal;
 }
 
 export class BroadcastTransportAdapter implements TransportAdapter {
@@ -99,6 +107,10 @@ export class BroadcastTransportAdapter implements TransportAdapter {
 
   public async connect(): Promise<void> {
     if (this.connected) {
+      return;
+    }
+
+    if (!env.hasBroadcastChannel) {
       return;
     }
 

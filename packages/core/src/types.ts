@@ -1,3 +1,5 @@
+import type { FlockError, FlockErrorCode } from './flock-error';
+
 export type PresenceData = Record<string, unknown>;
 
 export type RoomStatus =
@@ -65,11 +67,7 @@ export type Peer<TPresence extends PresenceData = PresenceData> = {
   avatar?: string;
 } & Partial<TPresence>;
 
-export interface FlockError extends Error {
-  code: 'ROOM_FULL' | 'AUTH_FAILED' | 'NETWORK_ERROR' | 'ENCRYPTION_ERROR';
-  recoverable: boolean;
-  cause?: unknown;
-}
+export type { FlockError, FlockErrorCode };
 
 export type Unsubscribe = () => void;
 
@@ -96,12 +94,9 @@ export interface RoomEventMap<TPresence extends PresenceData = PresenceData> {
   'room:empty': void;
 }
 
-export type RoomEventHandler<
-  TPresence extends PresenceData,
-  TEvent extends RoomEventName,
-> = RoomEventMap<TPresence>[TEvent] extends void
-  ? () => void
-  : (payload: RoomEventMap<TPresence>[TEvent]) => void;
+export type RoomEventHandler<TPresence extends PresenceData, TEvent extends RoomEventName> = (
+  payload: RoomEventMap<TPresence>[TEvent],
+) => void;
 
 export interface CursorOptions {
   throttleMs?: number;
@@ -198,10 +193,10 @@ export interface AwarenessEngine {
 }
 
 export interface EventEngine<TPresence extends PresenceData = PresenceData> {
-  emit<T = unknown>(name: string, payload: T): void;
-  emitTo<T = unknown>(peerId: string, name: string, payload: T): void;
-  on<T = unknown>(name: string, cb: (payload: T, from: Peer<TPresence>) => void): Unsubscribe;
-  off<T = unknown>(name: string, cb: (payload: T, from: Peer<TPresence>) => void): void;
+  emit(name: string, payload: unknown): void;
+  emitTo(peerId: string, name: string, payload: unknown): void;
+  on(name: string, cb: (payload: unknown, from: Peer<TPresence>) => void): Unsubscribe;
+  off(name: string, cb: (payload: unknown, from: Peer<TPresence>) => void): void;
 }
 
 export interface Room<TPresence extends PresenceData = PresenceData> {

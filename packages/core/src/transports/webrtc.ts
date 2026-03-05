@@ -1,4 +1,5 @@
 import { createFlockError } from '../flock-error';
+import { env } from '../internal/env';
 import type { FlockError, PresenceData, RoomOptions } from '../types';
 import type { TransportAdapter, TransportSignal } from './transport';
 import { type SignalingServerMessage, type SignalingSignalMessage } from './webrtc.protocol';
@@ -13,7 +14,7 @@ const DATA_CHANNEL_OPEN = 'open';
 const DATA_CHANNEL_CLOSED = 'closed';
 const PEER_CONNECTION_CLOSED = 'closed';
 const PEER_FAILURE_STATES = new Set<RTCPeerConnectionState>(['failed', 'disconnected', 'closed']);
-const SIGNAL_TYPES = new Set<TransportSignal['type']>([
+const SIGNAL_TYPES = new Set<string>([
   'hello',
   'welcome',
   'presence:update',
@@ -42,14 +43,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function isTransportSignalType(value: unknown): value is TransportSignal['type'] {
+  return typeof value === 'string' && SIGNAL_TYPES.has(value);
+}
+
 function isTransportSignal(value: unknown): value is TransportSignal {
   if (!isRecord(value)) {
     return false;
   }
 
   return (
-    typeof value.type === 'string' &&
-    SIGNAL_TYPES.has(value.type as TransportSignal['type']) &&
+    isTransportSignalType(value.type) &&
     typeof value.roomId === 'string' &&
     typeof value.fromPeerId === 'string' &&
     (value.toPeerId === undefined || typeof value.toPeerId === 'string')
@@ -112,7 +116,7 @@ function toPlainCandidate(candidate: RTCIceCandidate): RTCIceCandidateInit {
     plainCandidate.sdpMLineIndex = candidate.sdpMLineIndex;
   }
 
-  if (candidate.usernameFragment !== null && candidate.usernameFragment !== undefined) {
+  if (candidate.usernameFragment !== null) {
     plainCandidate.usernameFragment = candidate.usernameFragment;
   }
 
@@ -122,8 +126,8 @@ function toPlainCandidate(candidate: RTCIceCandidate): RTCIceCandidateInit {
 function toPlainDescription(
   description: RTCSessionDescription | RTCSessionDescriptionInit,
 ): RTCSessionDescriptionInit {
-  if (typeof (description as RTCSessionDescription).toJSON === 'function') {
-    return (description as RTCSessionDescription).toJSON();
+  if ('toJSON' in description && typeof description.toJSON === 'function') {
+    return description.toJSON();
   }
 
   return {
@@ -146,7 +150,7 @@ function resolveRelayUrl<TPresence extends PresenceData>(options: RoomOptions<TP
 }
 
 function getRTCPeerConnectionConstructor(): typeof RTCPeerConnection {
-  if (typeof RTCPeerConnection === 'undefined') {
+  if (!env.hasRTCPeerConnection) {
     throw toFlockError('RTCPeerConnection is not available in this runtime.');
   }
 

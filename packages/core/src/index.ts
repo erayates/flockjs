@@ -1,6 +1,8 @@
+import { FlockError } from './flock-error';
 import { createRoom } from './room';
 
 export { createRoom };
+export { FlockError };
 export type {
   AwarenessEngine,
   AwarenessSelection,
@@ -13,7 +15,7 @@ export type {
   EncryptionOptions,
   EventEngine,
   EventOptions,
-  FlockError,
+  FlockErrorCode,
   Peer,
   PresenceData,
   PresenceEngine,
