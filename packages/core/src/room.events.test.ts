@@ -2,6 +2,45 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createRoom } from './index';
 
+type WindowListener = (...args: unknown[]) => void;
+
+class MockWindowEventTarget {
+  private readonly listeners = new Map<string, Set<WindowListener>>();
+
+  addEventListener(eventName: string, listener: WindowListener): void {
+    const eventListeners = this.listeners.get(eventName) ?? new Set<WindowListener>();
+    eventListeners.add(listener);
+    this.listeners.set(eventName, eventListeners);
+  }
+
+  removeEventListener(eventName: string, listener: WindowListener): void {
+    const eventListeners = this.listeners.get(eventName);
+    if (!eventListeners) {
+      return;
+    }
+
+    eventListeners.delete(listener);
+    if (eventListeners.size === 0) {
+      this.listeners.delete(eventName);
+    }
+  }
+
+  dispatch(eventName: string): void {
+    const eventListeners = this.listeners.get(eventName);
+    if (!eventListeners) {
+      return;
+    }
+
+    for (const listener of eventListeners) {
+      listener({ type: eventName });
+    }
+  }
+
+  getListenerCount(eventName: string): number {
+    return this.listeners.get(eventName)?.size ?? 0;
+  }
+}
+
 const wait = (ms: number): Promise<void> => {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -56,6 +95,78 @@ describe('Room events', () => {
     expect(onReconnecting).toHaveBeenCalledWith({ attempt: 1 });
 
     await room.disconnect();
+  });
+
+  it('handles unload by disconnecting and propagating peer leave', async () => {
+    const originalWindow = globalThis.window;
+    const windowA = new MockWindowEventTarget();
+    const windowB = new MockWindowEventTarget();
+
+    let roomA:
+      | ReturnType<typeof createRoom<{ name: string }>>
+      | null = null;
+    let roomB:
+      | ReturnType<typeof createRoom<{ name: string }>>
+      | null = null;
+
+    try {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        writable: true,
+        value: windowA as unknown as Window,
+      });
+
+      roomA = createRoom<{ name: string }>('room-unload-behavior', {
+        transport: 'broadcast',
+        presence: { name: 'Alice' },
+      });
+      await roomA.connect();
+      await roomA.connect();
+
+      expect(windowA.getListenerCount('beforeunload')).toBe(1);
+      expect(windowA.getListenerCount('pagehide')).toBe(1);
+
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        writable: true,
+        value: windowB as unknown as Window,
+      });
+
+      roomB = createRoom<{ name: string }>('room-unload-behavior', {
+        transport: 'broadcast',
+        presence: { name: 'Bob' },
+      });
+
+      const onPeerLeave = vi.fn();
+      roomB.on('peer:leave', onPeerLeave);
+      await roomB.connect();
+
+      expect(windowB.getListenerCount('beforeunload')).toBe(1);
+      expect(windowB.getListenerCount('pagehide')).toBe(1);
+
+      await waitFor(() => roomA?.peerCount === 1 && roomB?.peerCount === 1);
+
+      windowA.dispatch('beforeunload');
+
+      await waitFor(() => roomA?.status === 'disconnected');
+      await waitFor(() => roomB?.peerCount === 0);
+
+      expect(onPeerLeave).toHaveBeenCalledTimes(1);
+      expect(windowA.getListenerCount('beforeunload')).toBe(0);
+      expect(windowA.getListenerCount('pagehide')).toBe(0);
+
+      await roomB.disconnect();
+      expect(windowB.getListenerCount('beforeunload')).toBe(0);
+      expect(windowB.getListenerCount('pagehide')).toBe(0);
+    } finally {
+      await roomA?.disconnect();
+      await roomB?.disconnect();
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        writable: true,
+        value: originalWindow,
+      });
+    }
   });
 
   it('emits and receives room events via useEvents()', async () => {

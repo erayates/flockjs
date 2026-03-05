@@ -28,10 +28,12 @@ interface RoomOptions {
 }
 ```
 
-Transport support in EP-02 `#009`:
+Transport support in EP-02 `#010`:
 
 - Available baseline: `auto`, `broadcast`
 - Planned: `webrtc`, `websocket`
+- BroadcastChannel transport uses a serialized JSON envelope (`source: "flockjs"`, `version: 1`).
+- In browser environments, room lifecycle automatically handles `beforeunload` and `pagehide` to trigger disconnect and propagate peer leave.
 
 ## `Room` Contract
 

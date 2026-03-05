@@ -35,10 +35,12 @@ export interface FlockError extends Error {
 export type Unsubscribe = () => void;
 ```
 
-EP-02 `#009` baseline note:
+EP-02 `#010` baseline note:
 
 - `RoomStatus`, `Peer`, and `FlockError` are now implemented in the core runtime.
 - Broadcast-based peer discovery is available via `transport: 'auto' | 'broadcast'`.
+- BroadcastChannel payloads are serialized and validated via a versioned JSON envelope.
+- Browser room instances auto-register unload handlers (`beforeunload`, `pagehide`) to propagate `peer:leave`.
 - `webrtc` and `websocket` transport paths remain planned.
 
 ## Engine Option Types

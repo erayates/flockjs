@@ -58,6 +58,7 @@ interface ConnectContext {
 type PeerEventCallback<TPresence extends PresenceData> = (peers: Peer<TPresence>[]) => void;
 type CursorCallback = (positions: CursorPosition[]) => void;
 type AwarenessCallback = (peers: AwarenessState[]) => void;
+type WindowEventTarget = Pick<Window, 'addEventListener' | 'removeEventListener'>;
 type InternalEventCallback<TPresence extends PresenceData> = (
   payload: unknown,
   from: Peer<TPresence>,
@@ -158,6 +159,18 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private reconnectAttempt = 0;
 
+  private unloadHandlersRegistered = false;
+
+  private unloadEventTarget: WindowEventTarget | null = null;
+
+  private readonly onBeforeUnload = (): void => {
+    this.handleWindowUnload();
+  };
+
+  private readonly onPageHide = (): void => {
+    this.handleWindowUnload();
+  };
+
   private readonly peerSubscribers = new Set<PeerEventCallback<TPresence>>();
 
   private readonly cursorPositions = new Map<string, CursorPosition>();
@@ -235,6 +248,8 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
         return undefined;
       });
     }
+
+    this.unregisterUnloadHandlers();
 
     if (!this.transport) {
       this.setStatus('disconnected');
@@ -447,6 +462,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       });
 
       await transport.connect();
+      this.registerUnloadHandlers();
 
       this.hasConnectedBefore = true;
       this.reconnectAttempt = 0;
@@ -462,6 +478,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       });
     } catch (error) {
       const flockError = toTransportError(error);
+      this.unregisterUnloadHandlers();
       this.setStatus('error');
       this.roomEventEmitter.emit('error', flockError);
       this.transportUnsubscribe?.();
@@ -473,6 +490,57 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private setStatus(status: RoomStatus): void {
     this.currentStatus = status;
+  }
+
+  private getWindowEventTarget(): WindowEventTarget | null {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    if (
+      typeof window.addEventListener !== 'function' ||
+      typeof window.removeEventListener !== 'function'
+    ) {
+      return null;
+    }
+
+    return window;
+  }
+
+  private registerUnloadHandlers(): void {
+    if (this.unloadHandlersRegistered) {
+      return;
+    }
+
+    const eventTarget = this.getWindowEventTarget();
+    if (!eventTarget) {
+      return;
+    }
+
+    eventTarget.addEventListener('beforeunload', this.onBeforeUnload);
+    eventTarget.addEventListener('pagehide', this.onPageHide);
+
+    this.unloadEventTarget = eventTarget;
+    this.unloadHandlersRegistered = true;
+  }
+
+  private unregisterUnloadHandlers(): void {
+    if (!this.unloadHandlersRegistered) {
+      return;
+    }
+
+    const eventTarget = this.unloadEventTarget;
+    if (eventTarget) {
+      eventTarget.removeEventListener('beforeunload', this.onBeforeUnload);
+      eventTarget.removeEventListener('pagehide', this.onPageHide);
+    }
+
+    this.unloadEventTarget = null;
+    this.unloadHandlersRegistered = false;
+  }
+
+  private handleWindowUnload(): void {
+    void this.disconnect();
   }
 
   private shouldHandleSignal(signal: TransportSignal): boolean {

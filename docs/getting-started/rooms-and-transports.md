@@ -15,7 +15,7 @@ A `room` is the primary collaboration scope in FlockJS.
 | Transport   | Typical use                                 | Server required                              | Notes                                  |
 | ----------- | ------------------------------------------- | -------------------------------------------- | -------------------------------------- |
 | `webrtc`    | small collaborative rooms                   | No app server (STUN/TURN infra still needed) | Best default for low-latency peer sync |
-| `broadcast` | same-browser, same-origin tabs              | No                                           | Useful local/dev multi-tab behavior    |
+| `broadcast` | same-browser, same-origin tabs              | No                                           | JSON-envelope messaging + unload-aware leave handling |
 | `websocket` | larger rooms or strict network environments | Yes (`@flockjs/relay`)                       | Centralized relay path                 |
 | `auto`      | choose best available option                | Depends on fallback path                     | Recommended starting mode              |
 
@@ -25,6 +25,11 @@ A `room` is the primary collaboration scope in FlockJS.
 - Set explicit `maxPeers` for WebRTC mesh safety
 - Configure your own STUN/TURN infrastructure for production
 - Switch to relay mode as room sizes increase
+
+## BroadcastChannel Notes
+
+- Broadcast transport serializes each signal as a versioned JSON envelope before delivery.
+- In browser contexts, rooms auto-handle `beforeunload` and `pagehide` to trigger disconnect and propagate peer leave events.
 
 ## STUN/TURN Production Notes
 
