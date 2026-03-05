@@ -1,7 +1,7 @@
 {
   "name": "@flockjs/react",
   "version": "0.0.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "main": "dist/index.js",
   "types": "src/index.ts",
@@ -22,5 +22,8 @@
   },
   "dependencies": {
     "@flockjs/core": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -14,11 +14,16 @@
     "format:check": "prettier --check .",
     "format:write": "prettier --write .",
     "commitlint": "commitlint",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish",
+    "release:status": "changeset status --verbose",
     "verify:tsconfig-extends": "node scripts/verify-tsconfig-extends.mjs",
     "prepare": "husky",
     "clean": "turbo run clean"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.30.0",
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",
     "@eslint/js": "^9.22.0",

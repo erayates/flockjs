@@ -53,10 +53,14 @@ When workspace scaffolding is fully in place, the expected root commands are:
 ```bash
 pnpm build
 pnpm test
+pnpm test:watch
 pnpm lint
 pnpm typecheck
+pnpm typecheck:root
 pnpm format:check
 pnpm format:write
+pnpm changeset
+pnpm release:status
 ```
 
 ## Branching Strategy
@@ -98,6 +102,14 @@ Every PR should:
 4. Update docs when API/behavior changes.
 5. Pass CI checks.
 
+CI validates each PR to `main` on Node `18` and `20` with this stage order:
+
+1. install
+2. lint
+3. typecheck
+4. test
+5. build
+
 ### PR Checklist
 
 - [ ] Scope is focused and minimal.
@@ -136,6 +148,28 @@ Expected quality bar for merged changes:
 Core package target:
 
 - Coverage goal: `>= 80%` before `v1.0`
+
+## Versioning and Releases
+
+FlockJS uses Changesets with independent package versioning.
+
+Contributor expectations:
+
+1. Add a changeset (`pnpm changeset`) for any user-visible package change.
+2. Include the generated `.changeset/*.md` file in your PR.
+
+Maintainer release flow:
+
+1. Ensure CI is green on `main`.
+2. Run `pnpm version-packages` to apply version bumps and changelog updates.
+3. Push a release tag (`v*`) to trigger `.github/workflows/release.yml`.
+4. Release workflow validates and publishes `packages/*` to npm.
+
+Required repository secrets for release and cache:
+
+- `NPM_TOKEN` (required for npm publish)
+- `TURBO_TEAM` (optional)
+- `TURBO_TOKEN` (optional)
 
 ## Documentation Contributions
 

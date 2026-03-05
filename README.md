@@ -107,6 +107,14 @@ pnpm test
 pnpm test:watch
 ```
 
+Release tooling commands:
+
+```bash
+pnpm changeset
+pnpm version-packages
+pnpm release:status
+```
+
 Type checking is split intentionally:
 
 - `pnpm typecheck`: runs per-workspace checks through Turbo.
@@ -117,6 +125,14 @@ Testing is package-scoped for this sprint:
 - `pnpm test`: runs Vitest via Turbo for `packages/*`.
 - `pnpm test:watch`: starts package test watch mode.
 - Coverage reports are emitted under `packages/<name>/coverage`.
+
+CI/CD baseline for EP-01 `#005`:
+
+- PR validation runs on every PR to `main`.
+- Validation runs on Node `18` and `20`.
+- Pipeline order: install -> lint -> typecheck -> test -> build.
+- Release workflow triggers on `v*` tags and publishes `@flockjs/*` via Changesets.
+- Release workflow requires `NPM_TOKEN` and optionally uses `TURBO_TEAM` / `TURBO_TOKEN`.
 
 ### Workspace Layout
 

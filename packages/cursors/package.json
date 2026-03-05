@@ -1,7 +1,7 @@
 {
   "name": "@flockjs/cursors",
   "version": "0.0.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "main": "dist/index.js",
   "types": "src/index.ts",
@@ -19,5 +19,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rimraf dist coverage",
     "test:watch": "vitest --config ../../vitest.package.config.ts"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
