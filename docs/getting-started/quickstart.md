@@ -28,14 +28,24 @@ await room.connect();
 
 Transport support in the current baseline:
 
-- Available: `auto`, `broadcast`, `webrtc`
-- Planned: `websocket`
+- Available: `auto`, `broadcast`, `webrtc`, `websocket`
+- `auto` order: `broadcast` -> `webrtc` -> `websocket` -> `in-memory`
 
 WebRTC cross-machine baseline:
 
 ```ts
 const room = createRoom('my-first-room', {
   transport: 'webrtc',
+  relayUrl: 'ws://localhost:8787',
+  presence: { name: 'Alice', color: '#4F46E5' },
+});
+```
+
+WebSocket relay baseline:
+
+```ts
+const room = createRoom('my-first-room', {
+  transport: 'websocket',
   relayUrl: 'ws://localhost:8787',
   presence: { name: 'Alice', color: '#4F46E5' },
 });

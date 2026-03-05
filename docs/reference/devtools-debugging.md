@@ -16,6 +16,12 @@ const room = createRoom('my-room', {
 });
 ```
 
+`debug.transport` writes a `console.debug` entry whenever transport selection happens. The payload includes:
+
+- requested mode
+- selected transport
+- selection reason
+
 ## Diagnostics Snapshot
 
 ```ts

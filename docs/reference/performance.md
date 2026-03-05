@@ -35,8 +35,10 @@ const cursors = room.useCursors({
 ## Scaling Path
 
 1. Start with `transport: 'auto'`.
-2. Move to relay for sustained 10+ peers.
-3. Add horizontal relay scaling as concurrency grows.
+2. Let `auto` stay on BroadcastChannel for same-origin browser contexts.
+3. Use WebRTC for smaller cross-machine rooms when direct mesh is viable.
+4. Move to websocket relay for sustained larger rooms or constrained networks.
+5. Add horizontal relay scaling as concurrency grows.
 
 ## Validation Targets
 

@@ -16,20 +16,27 @@ A `room` is the primary collaboration scope in FlockJS.
 | ----------- | ------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `webrtc`    | small collaborative rooms across machines   | Yes (relay for WebRTC)   | P2P DataChannel mesh after signaling; same-origin fallback uses BroadcastChannel only when signaling is unavailable during connect |
 | `broadcast` | same-browser, same-origin tabs              | No                       | JSON-envelope messaging + unload-aware leave handling                                                                              |
-| `websocket` | larger rooms or strict network environments | Yes (`@flockjs/relay`)   | Planned transport mode                                                                                                             |
-| `auto`      | choose best available option                | Depends on fallback path | Recommended starting mode                                                                                                          |
+| `websocket` | larger rooms or strict network environments | Yes (`@flockjs/relay`)   | Relay-backed room messaging with targeted send + broadcast support                                                                 |
+| `auto`      | choose best available option                | Depends on fallback path | Ordered selection: `broadcast` -> `webrtc` -> `websocket` -> `in-memory`                                                           |
 
 ## Recommended Defaults
 
-- Start with `transport: 'auto'` for same-tab baseline behavior.
+- Start with `transport: 'auto'` unless you have a specific network requirement.
 - Use `transport: 'webrtc'` with `relayUrl` for cross-machine collaboration.
+- Use `transport: 'websocket'` with `relayUrl` for larger rooms or constrained networks where direct peer mesh is not a fit.
 - If initial signaling is unavailable and peers share the same origin, `transport: 'webrtc'` falls back to BroadcastChannel automatically.
 - Keep `maxPeers` explicit for mesh safety (for example `maxPeers: 8`).
 - Default STUN fallback is Google public STUN (`stun:stun.l.google.com:19302`) when `stunUrls` is omitted.
 - Default ICE gather timeout is `5000ms` (`webrtc.iceGatherTimeoutMs`).
 - Default DataChannel behavior is ordered and reliable (`ordered: true`, no `maxRetransmits` override).
 - Configure your own STUN/TURN infrastructure for production.
-- Keep `websocket` mode reserved for future releases (planned).
+
+## Auto Selection Order
+
+- `broadcast` when `BroadcastChannel` is available.
+- `webrtc` when BroadcastChannel is unavailable and both `RTCPeerConnection` and `relayUrl` are available.
+- `websocket` when BroadcastChannel is unavailable, WebRTC is unavailable, and `relayUrl` is available.
+- `in-memory` when no browser-capable transport is available.
 
 ## BroadcastChannel Notes
 

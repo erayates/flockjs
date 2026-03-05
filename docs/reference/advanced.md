@@ -52,7 +52,19 @@ const relay = createRelayServer({
 await relay.start();
 ```
 
-The relay package in EP-02 `#011` is a signaling baseline for WebRTC SDP/ICE exchange.
+The relay package is the self-hostable baseline for both:
+
+- WebRTC SDP/ICE signaling
+- WebSocket room message relay
+
+WebSocket relay example:
+
+```ts
+const room = createRoom('doc-room', {
+  transport: 'websocket',
+  relayUrl: 'ws://localhost:8787',
+});
+```
 
 ## Reconnection
 

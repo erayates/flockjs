@@ -37,19 +37,23 @@ interface RoomOptions {
 }
 ```
 
-Transport support in EP-02 `#011` / `#012`:
+Transport support in the current baseline:
 
-- Available baseline: `auto`, `broadcast`, `webrtc`
-- Planned: `websocket`
+- Available baseline: `auto`, `broadcast`, `webrtc`, `websocket`
+- `auto` selection order is `broadcast` -> `webrtc` -> `websocket` -> `in-memory`.
+- `auto` chooses BroadcastChannel when available, even if `relayUrl` is configured.
 - `webrtc` uses `relayUrl` for SDP/ICE signaling and falls back to BroadcastChannel during initial connect when signaling is unavailable and same-origin broadcast is available.
 - `webrtc` still fails hard when `relayUrl` is missing, `RTCPeerConnection` is unavailable, or the relay rejects the join/auth request.
+- `websocket` uses `relayUrl` and `@flockjs/relay` for generic room message relay.
 - Broadcast fallback is connect-time only; later signaling disconnects still emit `disconnected`.
 - Default STUN server: `stun:stun.l.google.com:19302` (override with `stunUrls`).
 - Default ICE gather timeout: `5000ms` (override with `webrtc.iceGatherTimeoutMs`).
 - DataChannel default: ordered and reliable delivery (`ordered: true`, no `maxRetransmits` set).
 - `maxPeers` is a hard cap for WebRTC mesh peer-connection context creation.
 - BroadcastChannel transport uses a serialized JSON envelope (`source: "flockjs"`, `version: 1`).
+- Relay websocket transport messages are schema-validated before room delivery.
 - In browser environments, room lifecycle automatically handles `beforeunload` and `pagehide` to trigger disconnect and propagate peer leave.
+- `debug.transport` logs the requested transport mode, the selected transport, and the selection reason via `console.debug`.
 
 ## `Room` Contract
 
