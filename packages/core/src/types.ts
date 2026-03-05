@@ -10,6 +10,19 @@ export type RoomStatus =
 
 export type TransportMode = 'auto' | 'webrtc' | 'websocket' | 'broadcast';
 
+export type RelayAuthToken = string | (() => string | Promise<string>);
+
+export interface WebRTCDataChannelOptions {
+  ordered?: boolean;
+  maxRetransmits?: number;
+  protocol?: string;
+}
+
+export interface WebRTCOptions {
+  iceGatherTimeoutMs?: number;
+  dataChannel?: WebRTCDataChannelOptions;
+}
+
 export interface ReconnectOptions {
   maxAttempts?: number;
   backoffMs?: number;
@@ -36,7 +49,9 @@ export interface RoomOptions<TPresence extends PresenceData = PresenceData> {
   maxPeers?: number;
   stunUrls?: string[];
   relayUrl?: string;
+  relayAuth?: RelayAuthToken;
   reconnect?: boolean | ReconnectOptions;
+  webrtc?: WebRTCOptions;
   encryption?: boolean | EncryptionOptions;
   debug?: boolean | DebugOptions;
 }

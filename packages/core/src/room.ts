@@ -104,7 +104,9 @@ function toTransportError(error: unknown): FlockError {
   );
 }
 
-function sanitizePresencePatch<TPresence extends PresenceData>(patch: Partial<TPresence>): Partial<TPresence> {
+function sanitizePresencePatch<TPresence extends PresenceData>(
+  patch: Partial<TPresence>,
+): Partial<TPresence> {
   const sanitized: Partial<TPresence> = {};
 
   for (const [key, value] of Object.entries(patch)) {
@@ -118,7 +120,9 @@ function sanitizePresencePatch<TPresence extends PresenceData>(patch: Partial<TP
   return sanitized;
 }
 
-function parsePeerPayload<TPresence extends PresenceData>(payload: unknown): Peer<TPresence> | null {
+function parsePeerPayload<TPresence extends PresenceData>(
+  payload: unknown,
+): Peer<TPresence> | null {
   if (!isRecord(payload)) {
     return null;
   }

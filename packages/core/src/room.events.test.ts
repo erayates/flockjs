@@ -102,12 +102,8 @@ describe('Room events', () => {
     const windowA = new MockWindowEventTarget();
     const windowB = new MockWindowEventTarget();
 
-    let roomA:
-      | ReturnType<typeof createRoom<{ name: string }>>
-      | null = null;
-    let roomB:
-      | ReturnType<typeof createRoom<{ name: string }>>
-      | null = null;
+    let roomA: ReturnType<typeof createRoom<{ name: string }>> | null = null;
+    let roomB: ReturnType<typeof createRoom<{ name: string }>> | null = null;
 
     try {
       Object.defineProperty(globalThis, 'window', {

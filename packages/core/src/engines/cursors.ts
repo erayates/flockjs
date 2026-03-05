@@ -1,9 +1,4 @@
-import type {
-  CursorEngine,
-  CursorOptions,
-  CursorPosition,
-  Unsubscribe,
-} from '../types';
+import type { CursorEngine, CursorOptions, CursorPosition, Unsubscribe } from '../types';
 
 interface CursorEngineContext {
   setSelfPosition(position: Partial<CursorPosition>): void;

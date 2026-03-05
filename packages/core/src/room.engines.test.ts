@@ -5,7 +5,10 @@ import { createCursorEngine } from './engines/cursors';
 import { createPresenceEngine } from './engines/presence';
 import { createStateEngine } from './engines/state';
 import { createRoom } from './index';
-import { createBroadcastTransportAdapter, isBroadcastChannelAvailable } from './transports/broadcast';
+import {
+  createBroadcastTransportAdapter,
+  isBroadcastChannelAvailable,
+} from './transports/broadcast';
 import { createInMemoryTransportAdapter } from './transports/in-memory';
 import { selectTransportAdapter } from './transports/select-transport';
 
@@ -170,15 +173,21 @@ describe('Engine helpers and transport adapters', () => {
 
 describe('Room engine integration branches', () => {
   it('covers awareness, cursors, state, events and maxPeers lifecycle paths', async () => {
-    const roomA = createRoom<{ name: string; role: 'editor' | 'viewer' }>('room-engine-integration', {
-      transport: 'broadcast',
-      maxPeers: 2,
-      presence: { name: 'A', role: 'editor' },
-    });
-    const roomB = createRoom<{ name: string; role: 'editor' | 'viewer' }>('room-engine-integration', {
-      transport: 'broadcast',
-      presence: { name: 'B', role: 'viewer' },
-    });
+    const roomA = createRoom<{ name: string; role: 'editor' | 'viewer' }>(
+      'room-engine-integration',
+      {
+        transport: 'broadcast',
+        maxPeers: 2,
+        presence: { name: 'A', role: 'editor' },
+      },
+    );
+    const roomB = createRoom<{ name: string; role: 'editor' | 'viewer' }>(
+      'room-engine-integration',
+      {
+        transport: 'broadcast',
+        presence: { name: 'B', role: 'viewer' },
+      },
+    );
 
     const roomFull = vi.fn();
     const roomEmpty = vi.fn();
@@ -209,7 +218,9 @@ describe('Room engine integration branches', () => {
     cursorsA.subscribe(cursorSeen);
 
     roomB.useCursors().setPosition({ x: 0.25, y: 0.75 });
-    await waitFor(() => cursorsA.getPositions().some((position) => position.userId === roomB.peerId));
+    await waitFor(() =>
+      cursorsA.getPositions().some((position) => position.userId === roomB.peerId),
+    );
 
     const state = roomA.useState({
       initialValue: { count: 0 },

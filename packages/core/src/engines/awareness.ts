@@ -1,9 +1,4 @@
-import type {
-  AwarenessEngine,
-  AwarenessSelection,
-  AwarenessState,
-  Unsubscribe,
-} from '../types';
+import type { AwarenessEngine, AwarenessSelection, AwarenessState, Unsubscribe } from '../types';
 
 interface AwarenessEngineContext {
   updateSelfAwareness(patch: Record<string, unknown>): void;

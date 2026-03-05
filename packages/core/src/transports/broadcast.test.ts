@@ -51,7 +51,8 @@ class MockBroadcastChannel {
   private closed = false;
 
   public constructor(public readonly name: string) {
-    const channelsForName = MockBroadcastChannel.channels.get(name) ?? new Set<MockBroadcastChannel>();
+    const channelsForName =
+      MockBroadcastChannel.channels.get(name) ?? new Set<MockBroadcastChannel>();
     channelsForName.add(this);
     MockBroadcastChannel.channels.set(name, channelsForName);
   }

@@ -18,6 +18,7 @@ export type {
   PresenceData,
   PresenceEngine,
   ReconnectOptions,
+  RelayAuthToken,
   Room,
   RoomEventHandler,
   RoomEventMap,
@@ -29,6 +30,8 @@ export type {
   StateOptions,
   TransportMode,
   Unsubscribe,
+  WebRTCDataChannelOptions,
+  WebRTCOptions,
 } from './types';
 
 export interface CoreHealth {

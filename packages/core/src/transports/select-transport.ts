@@ -1,16 +1,24 @@
 import { createFlockError } from '../flock-error';
-import type { FlockError, PresenceData, RoomOptions, TransportMode } from '../types';
+import type { FlockError, PresenceData, RoomOptions } from '../types';
 import { createBroadcastTransportAdapter, isBroadcastChannelAvailable } from './broadcast';
 import { createInMemoryTransportAdapter } from './in-memory';
 import type { TransportAdapter } from './transport';
+import { createWebRTCTransportAdapter } from './webrtc';
 
-function createUnsupportedTransportError(
-  mode: Exclude<TransportMode, 'auto' | 'broadcast'>,
-): FlockError {
+function createUnsupportedWebSocketTransportError(): FlockError {
   return createFlockError(
     'NETWORK_ERROR',
-    `Transport mode "${mode}" is planned but not implemented in EP-02 #009.`,
+    'Transport mode "websocket" is planned but not implemented in EP-02 #011.',
     false,
+  );
+}
+
+function createWebRTCTransportError(error: unknown): FlockError {
+  return createFlockError(
+    'NETWORK_ERROR',
+    error instanceof Error ? error.message : 'Failed to initialize WebRTC transport.',
+    false,
+    error,
   );
 }
 
@@ -21,8 +29,16 @@ export function selectTransportAdapter<TPresence extends PresenceData>(
 ): TransportAdapter {
   const mode = options.transport ?? 'auto';
 
-  if (mode === 'webrtc' || mode === 'websocket') {
-    throw createUnsupportedTransportError(mode);
+  if (mode === 'webrtc') {
+    try {
+      return createWebRTCTransportAdapter(roomId, peerId, options);
+    } catch (error) {
+      throw createWebRTCTransportError(error);
+    }
+  }
+
+  if (mode === 'websocket') {
+    throw createUnsupportedWebSocketTransportError();
   }
 
   if (isBroadcastChannelAvailable()) {

@@ -1,6 +1,6 @@
 import type { Unsubscribe } from '../types';
 
-export type TransportKind = 'broadcast' | 'in-memory';
+export type TransportKind = 'broadcast' | 'in-memory' | 'webrtc';
 
 export type TransportSignalType =
   | 'hello'

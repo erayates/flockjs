@@ -49,9 +49,22 @@ describe('createRoom', () => {
     expect(room.status).toBe('disconnected');
   });
 
-  it('throws a typed error for unsupported transport modes', async () => {
+  it('throws a typed error for unsupported websocket transport mode', async () => {
     const room = createRoom('room-unsupported', {
+      transport: 'websocket',
+    });
+
+    await expect(room.connect()).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+      recoverable: false,
+    });
+    expect(room.status).toBe('error');
+  });
+
+  it('throws a typed error when WebRTC runtime dependencies are unavailable', async () => {
+    const room = createRoom('room-webrtc-runtime', {
       transport: 'webrtc',
+      relayUrl: 'ws://localhost:8787',
     });
 
     await expect(room.connect()).rejects.toMatchObject({
