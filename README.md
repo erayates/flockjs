@@ -83,6 +83,7 @@ window.addEventListener('beforeunload', () => {
 - [Installation](docs/getting-started/installation.md)
 - [Quickstart](docs/getting-started/quickstart.md)
 - [Core API reference](docs/reference/core-api.md)
+- [Code quality guidelines](docs/project/flockjs-code-quality-guidelines.md)
 - [Contributing guide](CONTRIBUTING.md)
 - [Roadmap](ROADMAP.md)
 
@@ -92,7 +93,8 @@ Issue `EP-01 #001` scaffolds this repository as a `pnpm` + `turborepo` monorepo 
 
 ### Prerequisites
 
-- Node.js `20` (pinned via `.nvmrc` and `.node-version`)
+- Node.js `20` for local development (pinned via `.nvmrc` and `.node-version`)
+- Runtime compatibility baseline for published packages: Node.js `18+`
 - `pnpm`
 
 ### Install and Validate

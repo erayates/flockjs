@@ -3,3 +3,4 @@ node_modules
 **/dist
 **/coverage
 pnpm-lock.yaml
+docs/project/flockjs-code-quality-guidelines.md
