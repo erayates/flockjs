@@ -1,0 +1,33 @@
+name: Documentation Improvement
+description: Suggest documentation additions, corrections, or clarification
+labels: [documentation, triage]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Documentation location
+      description: File path or URL
+      placeholder: "docs/reference/core-api.md"
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: What is unclear, missing, or incorrect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested improvement
+      description: Propose wording, examples, or structure updates.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing docs issues.
+          required: true

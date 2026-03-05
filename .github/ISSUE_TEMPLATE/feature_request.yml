@@ -1,0 +1,53 @@
+name: Feature Request
+description: Propose an improvement or new capability
+labels: [enhancement, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Propose changes with clear problem framing and API-level detail.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What user/developer problem does this solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the preferred approach.
+    validations:
+      required: true
+
+  - type: textarea
+    id: api
+    attributes:
+      label: API sketch (if applicable)
+      description: Provide a rough API design in TypeScript.
+      render: ts
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What alternatives did you evaluate?
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact and tradeoffs
+      description: Include compatibility, performance, and complexity considerations.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues/discussions.
+          required: true
+        - label: This request aligns with the project scope for collaboration primitives.
+          required: true
