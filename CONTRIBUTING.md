@@ -171,9 +171,11 @@ Contributor expectations:
 Maintainer release flow:
 
 1. Ensure CI is green on `main`.
-2. Run `pnpm version-packages` to apply version bumps and changelog updates.
-3. Push a release tag (`v*`) to trigger `.github/workflows/release.yml`.
-4. Release workflow validates and publishes `packages/*` to npm.
+2. Merge PRs containing release-relevant `.changeset/*.md` files.
+3. `.github/workflows/changesets-release-pr.yml` creates or updates a release PR with version bumps and package `CHANGELOG.md` updates.
+4. Merge the release PR to `main`.
+5. Push a release tag (`v*`) to trigger `.github/workflows/release.yml`.
+6. Release workflow validates and publishes `packages/*` to npm.
 
 Required repository secrets for release and cache:
 

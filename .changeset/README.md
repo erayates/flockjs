@@ -16,10 +16,15 @@ pnpm changeset
 ```
 
 2. Include the generated file under `.changeset/` in your PR.
-3. Maintainers run versioning and publish during release:
+3. Release PR automation runs on `main` and prepares version/changelog updates:
 
 ```bash
 pnpm version-packages
+```
+
+4. Maintainers merge the release PR and publish with the tag workflow:
+
+```bash
 pnpm release
 ```
 
@@ -27,3 +32,5 @@ pnpm release
 
 - Versioning mode is independent per package.
 - The base branch for release calculations is `main`.
+- Package `CHANGELOG.md` files are generated when `pnpm version-packages` runs.
+- Publish is handled by `.github/workflows/release.yml` on `v*` tags.

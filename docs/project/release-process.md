@@ -21,6 +21,11 @@ Changesets is the canonical versioning tool:
 - `pnpm version-packages`
 - `pnpm release`
 
+Changelog model:
+
+- Root `CHANGELOG.md` is project-level narrative.
+- `pnpm version-packages` auto-generates package `CHANGELOG.md` files for bumped `@flockjs/*` packages.
+
 ## Publish Scope
 
 - Published: `packages/*`
@@ -31,10 +36,12 @@ Changesets is the canonical versioning tool:
 1. Contributor adds a changeset file in PR (`pnpm changeset`).
 2. PR CI (`.github/workflows/ci.yml`) validates on Node `18` and `20`.
 3. Maintainers merge release-ready changes into `main`.
-4. Maintainers run `pnpm version-packages` and commit version bumps.
-5. Maintainers push tag matching `v*`.
-6. Tag triggers `.github/workflows/release.yml`.
-7. Release workflow validates and publishes to npm via Changesets.
+4. `.github/workflows/changesets-release-pr.yml` auto-creates/updates a release PR on `main`.
+5. Release PR contains version bumps and package changelog updates from `pnpm version-packages`.
+6. Maintainers merge the release PR.
+7. Maintainers push tag matching `v*`.
+8. Tag triggers `.github/workflows/release.yml`.
+9. Release workflow validates and publishes to npm via Changesets.
 
 ## Pre-Release and Stable Strategy
 
@@ -54,6 +61,7 @@ PR validation pipeline order:
 Release trigger:
 
 - Git tag push matching `v*`
+- Changesets release PR workflow runs on push to `main`
 
 Release secrets:
 

@@ -115,6 +115,8 @@ pnpm version-packages
 pnpm release:status
 ```
 
+`pnpm version-packages` applies version bumps and updates package-level `CHANGELOG.md` files.
+
 Type checking is split intentionally:
 
 - `pnpm typecheck`: runs per-workspace checks through Turbo.
@@ -132,6 +134,7 @@ CI/CD baseline for EP-01 `#005`:
 - Validation runs on Node `18` and `20`.
 - Pipeline order: install -> lint -> typecheck -> test -> build.
 - Release workflow triggers on `v*` tags and publishes `@flockjs/*` via Changesets.
+- Changesets release PR workflow (`.github/workflows/changesets-release-pr.yml`) runs on pushes to `main`.
 - Release workflow requires `NPM_TOKEN` and optionally uses `TURBO_TEAM` / `TURBO_TOKEN`.
 
 ### Workspace Layout
