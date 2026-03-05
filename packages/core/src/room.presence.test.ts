@@ -46,13 +46,14 @@ describe('Room peer discovery and presence', () => {
     });
 
     const onPeerJoin = vi.fn();
+    const onPeerUpdate = vi.fn();
     const onPeerLeave = vi.fn();
 
     roomA.on('peer:join', onPeerJoin);
+    roomA.on('peer:update', onPeerUpdate);
     roomA.on('peer:leave', onPeerLeave);
 
-    await roomA.connect();
-    await roomB.connect();
+    await Promise.all([roomA.connect(), roomB.connect()]);
 
     await waitFor(() => roomA.peerCount === 1 && roomB.peerCount === 1);
 
@@ -64,6 +65,7 @@ describe('Room peer discovery and presence', () => {
       }),
     ]);
     expect(onPeerJoin).toHaveBeenCalledTimes(1);
+    expect(onPeerUpdate).not.toHaveBeenCalled();
 
     await roomB.disconnect();
     await waitFor(() => roomA.peerCount === 0);

@@ -79,6 +79,13 @@ interface Room<TPresence extends Record<string, unknown> = Record<string, unknow
 }
 ```
 
+Peer lifecycle notes:
+
+- `peerId` is generated as a collision-resistant UUID v4.
+- `room.peers` and `peerCount` are backed by the internal peer registry used by presence lookups.
+- Explicit peer leaves are removed immediately.
+- Inferred disconnects keep the peer visible for up to `5000ms` so same-peer reconnect races can dedupe without emitting a spurious leave/join pair.
+
 ## Event Names
 
 ```ts

@@ -23,6 +23,12 @@ interface PresenceEngine {
 }
 ```
 
+Lookup semantics:
+
+- `getSelf()` always returns the local peer registry entry.
+- `get(peerId)` and `getAll()` read from the same registry that powers `room.peers`.
+- Peers inferred as disconnected may remain visible for up to `5000ms` before removal so reconnecting with the same peer ID does not churn presence state.
+
 ## Data Shape
 
 ```ts

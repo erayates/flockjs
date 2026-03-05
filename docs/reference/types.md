@@ -51,6 +51,7 @@ export interface WebRTCOptions {
 Transport baseline note:
 
 - `RoomStatus`, `Peer`, and `FlockError` are now implemented in the core runtime.
+- `Peer.id` is a UUID v4 generated from Web Crypto.
 - Broadcast-based peer discovery is available via `transport: 'auto' | 'broadcast'`.
 - WebRTC mesh transport is available via `transport: 'webrtc'` with relay signaling, plus connect-time BroadcastChannel fallback when signaling is unavailable on the same origin.
 - `relayUrl` remains the canonical signaling URL for real WebRTC negotiation.
@@ -58,6 +59,7 @@ Transport baseline note:
 - `transport: 'auto'` selects `broadcast`, then `webrtc`, then `websocket`, and finally `in-memory` when no browser-capable transport is available.
 - BroadcastChannel payloads are serialized and validated via a versioned JSON envelope.
 - Browser room instances auto-register unload handlers (`beforeunload`, `pagehide`) to propagate `peer:leave`.
+- Inferred disconnects keep a peer in registry-backed snapshots for up to `5000ms` before removal so reconnect races can dedupe cleanly.
 - `debug.transport` enables transport-selection logging without changing public types.
 
 ## Engine Option Types

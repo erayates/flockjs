@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createFlockError } from './flock-error';
 import { createRoom, FlockError } from './index';
+import type { TransportAdapter, TransportSignal } from './transports/transport';
 import type { Room } from './types';
 
 const wait = (ms: number): Promise<void> => {
@@ -21,7 +22,45 @@ const waitFor = async (condition: () => boolean, timeoutMs = 1_500): Promise<voi
   }
 };
 
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+class MockTransportAdapter implements TransportAdapter {
+  public readonly kind = 'webrtc' as const;
+
+  private handler: ((signal: TransportSignal) => void) | null = null;
+
+  public connect(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  public disconnect(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  public send(signal: TransportSignal): void {
+    void signal;
+  }
+
+  public broadcast(signal: TransportSignal): void {
+    void signal;
+  }
+
+  public onMessage(handler: (signal: TransportSignal) => void): () => void {
+    this.handler = handler;
+    return () => {
+      if (this.handler === handler) {
+        this.handler = null;
+      }
+    };
+  }
+
+  public emit(signal: TransportSignal): void {
+    this.handler?.(signal);
+  }
+}
+
 afterEach(async () => {
+  vi.useRealTimers();
   await wait(10);
 });
 
@@ -32,6 +71,7 @@ describe('createRoom', () => {
     expect(room.id).toBe('room-api-baseline');
     expect(room.status).toBe('idle');
     expect(room.peerId).toBeTypeOf('string');
+    expect(room.peerId).toMatch(UUID_V4_PATTERN);
     expect(room.peerCount).toBe(0);
     expect(room.peers).toEqual([]);
   });
@@ -219,11 +259,116 @@ describe('createRoom', () => {
     });
   });
 
-  it('falls back to non-randomUUID peer ids when crypto.randomUUID is unavailable', () => {
+  it('cancels inferred peer removal when the same peer rejoins before the grace period expires', async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+
+    const adapter = new MockTransportAdapter();
+    vi.doMock('./transports/select-transport', () => ({
+      selectTransportAdapter: () => {
+        return adapter;
+      },
+    }));
+
+    let room: Room<{ name: string }> | null = null;
+
+    try {
+      const mod = await import('./index');
+      room = mod.createRoom<{ name: string }>('room-peer-rejoin-race', {
+        transport: 'webrtc',
+        relayUrl: 'ws://relay.local',
+        presence: {
+          name: 'Alice',
+        },
+      });
+
+      const onPeerJoin = vi.fn();
+      const onPeerLeave = vi.fn();
+      const onPeerUpdate = vi.fn();
+      room.on('peer:join', onPeerJoin);
+      room.on('peer:leave', onPeerLeave);
+      room.on('peer:update', onPeerUpdate);
+
+      await room.connect();
+
+      adapter.emit({
+        type: 'hello',
+        roomId: room.id,
+        fromPeerId: 'peer-b',
+        payload: {
+          peer: {
+            id: 'peer-b',
+            joinedAt: 1,
+            lastSeen: 1,
+            name: 'Bob',
+          },
+        },
+      });
+
+      expect(room.peerCount).toBe(1);
+      expect(onPeerJoin).toHaveBeenCalledTimes(1);
+
+      adapter.emit({
+        type: 'leave',
+        roomId: room.id,
+        fromPeerId: 'peer-b',
+      });
+
+      expect(room.peerCount).toBe(1);
+      await vi.advanceTimersByTimeAsync(4_000);
+
+      adapter.emit({
+        type: 'hello',
+        roomId: room.id,
+        fromPeerId: 'peer-b',
+        payload: {
+          peer: {
+            id: 'peer-b',
+            joinedAt: 1,
+            lastSeen: 1,
+            name: 'Bob',
+          },
+        },
+      });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(room.peerCount).toBe(1);
+      expect(room.peers).toEqual([
+        expect.objectContaining({
+          id: 'peer-b',
+          name: 'Bob',
+        }),
+      ]);
+      expect(room.usePresence().get('peer-b')).toEqual(
+        expect.objectContaining({
+          id: 'peer-b',
+          name: 'Bob',
+        }),
+      );
+      expect(onPeerJoin).toHaveBeenCalledTimes(1);
+      expect(onPeerUpdate).not.toHaveBeenCalled();
+      expect(onPeerLeave).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock('./transports/select-transport');
+      vi.resetModules();
+      await room?.disconnect();
+      vi.useRealTimers();
+    }
+  });
+
+  it('falls back to crypto.getRandomValues for UUID v4 peer ids when randomUUID is unavailable', () => {
     const originalCrypto = globalThis.crypto;
+    let sequence = 0;
     const fallbackCrypto = {
-      ...originalCrypto,
-      randomUUID: undefined,
+      getRandomValues(array: Uint8Array): Uint8Array {
+        for (let index = 0; index < array.length; index += 1) {
+          array[index] = (sequence + index + 1) & 0xff;
+        }
+
+        sequence += 17;
+        return array;
+      },
     };
 
     Object.defineProperty(globalThis, 'crypto', {
@@ -236,9 +381,44 @@ describe('createRoom', () => {
       const roomA = createRoom('room-peerid-fallback-a');
       const roomB = createRoom('room-peerid-fallback-b');
 
-      expect(roomA.peerId).toMatch(/^peer-[a-z0-9]+-[a-z0-9]+$/);
-      expect(roomB.peerId).toMatch(/^peer-[a-z0-9]+-[a-z0-9]+$/);
+      expect(roomA.peerId).toMatch(UUID_V4_PATTERN);
+      expect(roomB.peerId).toMatch(UUID_V4_PATTERN);
       expect(roomA.peerId).not.toBe(roomB.peerId);
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', {
+        configurable: true,
+        writable: true,
+        value: originalCrypto,
+      });
+    }
+  });
+
+  it('throws immediately when secure crypto for peer IDs is unavailable', () => {
+    const originalCrypto = globalThis.crypto;
+
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    });
+
+    try {
+      expect(() => {
+        createRoom('room-peerid-no-secure-random');
+      }).toThrowError(FlockError);
+
+      try {
+        createRoom('room-peerid-no-secure-random');
+      } catch (error) {
+        expect(error).toMatchObject({
+          code: 'NETWORK_ERROR',
+          recoverable: false,
+          cause: {
+            source: 'peer-id',
+            kind: 'secure-random-unavailable',
+          },
+        });
+      }
     } finally {
       Object.defineProperty(globalThis, 'crypto', {
         configurable: true,

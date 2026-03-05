@@ -7,6 +7,7 @@ import { TypedEventEmitter } from './event-emitter';
 import { createFlockError, FlockError } from './flock-error';
 import { createRuntimePeerId, getWindowEventTarget, type WindowEventTarget } from './internal/env';
 import { isObject, readBoolean, readNumber, readString } from './internal/guards';
+import { PeerRegistry } from './internal/peer-registry';
 import { selectTransportAdapter } from './transports/select-transport';
 import type { TransportAdapter, TransportSignal } from './transports/transport';
 import type {
@@ -163,9 +164,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private readonly roomEventEmitter = new TypedEventEmitter<RoomEventMap<TPresence>>();
 
-  private readonly remotePeers = new Map<string, Peer<TPresence>>();
-
-  private selfPeer: Peer<TPresence>;
+  private readonly peerRegistry: PeerRegistry<TPresence>;
 
   private transport: TransportAdapter | null = null;
 
@@ -215,14 +214,33 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     const now = Date.now();
     const initialPresence = sanitizePresencePatch(options.presence ?? {});
 
-    this.selfPeer = {
+    const initialSelfPeer: Peer<TPresence> = {
       id: this.peerId,
       joinedAt: now,
       lastSeen: now,
       ...initialPresence,
     };
 
+    this.peerRegistry = new PeerRegistry(initialSelfPeer, {
+      onPeerJoin: (peer) => {
+        this.handlePeerRegistryJoin(peer);
+      },
+      onPeerUpdate: (peer) => {
+        this.handlePeerRegistryUpdate(peer);
+      },
+      onPeerLeave: (peer) => {
+        this.handlePeerRegistryLeave(peer);
+      },
+      onSnapshotChange: () => {
+        this.notifyPeerSubscribers();
+      },
+    });
+
     this.awarenessByPeer.set(this.peerId, { peerId: this.peerId });
+  }
+
+  private get selfPeer(): Peer<TPresence> {
+    return this.peerRegistry.getSelf();
   }
 
   public get status(): RoomStatus {
@@ -230,11 +248,11 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   }
 
   public get peers(): Peer<TPresence>[] {
-    return Array.from(this.remotePeers.values());
+    return this.peerRegistry.getRemotes();
   }
 
   public get peerCount(): number {
-    return this.remotePeers.size;
+    return this.peerRegistry.getRemoteCount();
   }
 
   public async connect(): Promise<void> {
@@ -270,6 +288,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     this.unregisterUnloadHandlers();
 
     if (!this.transport) {
+      this.clearRemoteState();
       this.setStatus('disconnected');
       this.roomEventEmitter.emit('disconnected', { reason: 'manual' });
       return;
@@ -304,21 +323,17 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
           this.replaceSelfPresence(data);
         },
         getSelf: () => {
-          return this.selfPeer;
+          return this.peerRegistry.getSelf();
         },
         getPeer: (peerId) => {
-          if (peerId === this.peerId) {
-            return this.selfPeer;
-          }
-
-          return this.remotePeers.get(peerId) ?? null;
+          return this.peerRegistry.get(peerId);
         },
         getAllPeers: () => {
-          return this.getSelfAndPeersSnapshot();
+          return this.peerRegistry.getAll();
         },
         subscribe: (callback) => {
           this.peerSubscribers.add(callback);
-          callback(this.getSelfAndPeersSnapshot());
+          callback(this.peerRegistry.getAll());
 
           return () => {
             this.peerSubscribers.delete(callback);
@@ -490,6 +505,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     } catch (error) {
       const flockError = toTransportError(error);
       this.unregisterUnloadHandlers();
+      this.clearRemoteState();
       this.setStatus('error');
       this.roomEventEmitter.emit('error', flockError);
       this.transportUnsubscribe?.();
@@ -580,7 +596,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
         this.handlePresenceSignal(payload);
         return;
       case 'leave':
-        this.removeRemotePeer(signal.fromPeerId);
+        this.handleLeaveSignal(signal.fromPeerId, payload);
         return;
       case 'cursor:update':
         this.handleCursorSignal(signal.fromPeerId, payload);
@@ -608,7 +624,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       return;
     }
 
-    this.upsertRemotePeer(peer);
+    this.peerRegistry.upsertRemote(peer);
     this.sendSignal({
       type: 'welcome',
       toPeerId: signal.fromPeerId,
@@ -624,7 +640,17 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       return;
     }
 
-    this.upsertRemotePeer(peer);
+    this.peerRegistry.upsertRemote(peer);
+  }
+
+  private handleLeaveSignal(fromPeerId: string, payload: RoomSignalPayload<TPresence>): void {
+    const peer = parsePeerPayload<TPresence>(payload.peer);
+    if (peer && peer.id === fromPeerId) {
+      this.peerRegistry.removeRemoteImmediately(fromPeerId);
+      return;
+    }
+
+    this.peerRegistry.markRemoteDisconnected(fromPeerId);
   }
 
   private handleCursorSignal(fromPeerId: string, payload: RoomSignalPayload<TPresence>): void {
@@ -657,7 +683,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       return;
     }
 
-    const fromPeer = this.remotePeers.get(fromPeerId);
+    const fromPeer = this.peerRegistry.get(fromPeerId);
     if (!fromPeer) {
       return;
     }
@@ -696,7 +722,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       });
     }
 
-    this.clearRemoteState();
+    this.peerRegistry.markAllRemotesDisconnected();
     this.setStatus('disconnected');
     this.roomEventEmitter.emit('disconnected', { reason });
   }
@@ -720,66 +746,14 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     this.transport.broadcast(outboundSignal);
   }
 
-  private upsertRemotePeer(peer: Peer<TPresence>): void {
-    if (peer.id === this.peerId) {
-      return;
-    }
-
-    const now = Date.now();
-    const existing = this.remotePeers.get(peer.id);
-
-    const normalized: Peer<TPresence> = {
-      ...existing,
-      ...peer,
-      id: peer.id,
-      joinedAt: existing?.joinedAt ?? peer.joinedAt,
-      lastSeen: now,
-    };
-
-    this.remotePeers.set(peer.id, normalized);
-
-    if (existing) {
-      this.roomEventEmitter.emit('peer:update', normalized);
-    } else {
-      this.roomEventEmitter.emit('peer:join', normalized);
-    }
-
-    const maxPeers = this.options.maxPeers;
-    if (maxPeers !== undefined && this.remotePeers.size + 1 >= maxPeers) {
-      this.roomEventEmitter.emit('room:full', undefined);
-    }
-
-    this.notifyPeerSubscribers();
-  }
-
   private clearRemoteState(): void {
-    this.remotePeers.clear();
+    this.peerRegistry.clearRemotePeers({
+      emitLeaveEvents: false,
+    });
     this.cursorPositions.clear();
     this.awarenessByPeer.clear();
     this.awarenessByPeer.set(this.peerId, { peerId: this.peerId });
 
-    this.notifyPeerSubscribers();
-    this.notifyCursorSubscribers();
-    this.notifyAwarenessSubscribers();
-  }
-
-  private removeRemotePeer(peerId: string): void {
-    const existing = this.remotePeers.get(peerId);
-    if (!existing) {
-      return;
-    }
-
-    this.remotePeers.delete(peerId);
-    this.cursorPositions.delete(peerId);
-    this.awarenessByPeer.delete(peerId);
-
-    this.roomEventEmitter.emit('peer:leave', existing);
-
-    if (this.remotePeers.size === 0) {
-      this.roomEventEmitter.emit('room:empty', undefined);
-    }
-
-    this.notifyPeerSubscribers();
     this.notifyCursorSubscribers();
     this.notifyAwarenessSubscribers();
   }
@@ -804,9 +778,8 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   }
 
   private applySelfPresence(next: Peer<TPresence>): void {
-    this.selfPeer = next;
+    this.peerRegistry.setSelf(next);
     this.broadcastSelfPresence();
-    this.notifyPeerSubscribers();
   }
 
   private broadcastSelfPresence(): void {
@@ -819,7 +792,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   }
 
   private getSelfAndPeersSnapshot(): Peer<TPresence>[] {
-    return [this.selfPeer, ...this.peers];
+    return this.peerRegistry.getAll();
   }
 
   private notifyPeerSubscribers(): void {
@@ -827,6 +800,33 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     for (const subscriber of this.peerSubscribers) {
       subscriber(snapshot);
     }
+  }
+
+  private handlePeerRegistryJoin(peer: Peer<TPresence>): void {
+    this.roomEventEmitter.emit('peer:join', peer);
+
+    const maxPeers = this.options.maxPeers;
+    if (maxPeers !== undefined && this.peerRegistry.getRemoteCount() + 1 >= maxPeers) {
+      this.roomEventEmitter.emit('room:full', undefined);
+    }
+  }
+
+  private handlePeerRegistryUpdate(peer: Peer<TPresence>): void {
+    this.roomEventEmitter.emit('peer:update', peer);
+  }
+
+  private handlePeerRegistryLeave(peer: Peer<TPresence>): void {
+    this.cursorPositions.delete(peer.id);
+    this.awarenessByPeer.delete(peer.id);
+
+    this.roomEventEmitter.emit('peer:leave', peer);
+
+    if (this.peerRegistry.getRemoteCount() === 0) {
+      this.roomEventEmitter.emit('room:empty', undefined);
+    }
+
+    this.notifyCursorSubscribers();
+    this.notifyAwarenessSubscribers();
   }
 
   private setSelfCursorPosition(position: Partial<CursorPosition>): void {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TransportAdapter, TransportSignal } from './transports/transport';
 import type { Room } from './types';
@@ -43,24 +43,6 @@ class MockTransportAdapter implements TransportAdapter {
   }
 }
 
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-async function waitFor(condition: () => boolean, timeoutMs = 500): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-
-  while (!condition()) {
-    if (Date.now() > deadline) {
-      throw new Error(`Timed out waiting for condition after ${timeoutMs}ms.`);
-    }
-
-    await wait(5);
-  }
-}
-
 async function createMockedRoom(adapter: MockTransportAdapter): Promise<Room> {
   vi.resetModules();
   vi.doMock('./transports/select-transport', () => ({
@@ -79,6 +61,10 @@ async function createMockedRoom(adapter: MockTransportAdapter): Promise<Room> {
 
 beforeEach(() => {
   vi.resetModules();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('Room transport signal mapping', () => {
@@ -112,12 +98,16 @@ describe('Room transport signal mapping', () => {
     await room.disconnect();
   });
 
-  it('maps internal transport disconnect signals to disconnected status and cleanup', async () => {
+  it('maps internal transport disconnect signals to disconnected status and delayed cleanup', async () => {
+    vi.useFakeTimers();
+
     const adapter = new MockTransportAdapter();
     const room = await createMockedRoom(adapter);
 
     const onDisconnected = vi.fn();
+    const onPeerLeave = vi.fn();
     room.on('disconnected', onDisconnected);
+    room.on('peer:leave', onPeerLeave);
 
     await room.connect();
 
@@ -144,13 +134,24 @@ describe('Room transport signal mapping', () => {
       },
     });
 
-    await waitFor(() => room.status === 'disconnected');
-    expect(room.peerCount).toBe(0);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(room.status).toBe('disconnected');
+    expect(room.peerCount).toBe(1);
     expect(adapter.disconnectCalls).toBe(1);
     expect(onDisconnected).toHaveBeenCalledTimes(1);
     expect(onDisconnected).toHaveBeenCalledWith({
       reason: 'socket-gone',
     });
+    expect(onPeerLeave).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(room.peerCount).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(room.peerCount).toBe(0);
+    expect(onPeerLeave).toHaveBeenCalledTimes(1);
 
     adapter.emit({
       type: 'transport:disconnected',
@@ -161,7 +162,8 @@ describe('Room transport signal mapping', () => {
       },
     });
 
-    await wait(20);
+    await Promise.resolve();
+    await Promise.resolve();
     expect(onDisconnected).toHaveBeenCalledTimes(1);
     expect(adapter.disconnectCalls).toBe(1);
 
