@@ -17,8 +17,12 @@
     "lint": "eslint src --max-warnings 0",
     "test": "vitest run --config ../../vitest.package.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
     "clean": "rimraf dist coverage",
     "test:watch": "vitest --config ../../vitest.package.config.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
   },
   "publishConfig": {
     "access": "public"
