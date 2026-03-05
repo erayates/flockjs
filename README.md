@@ -104,12 +104,19 @@ pnpm lint
 pnpm typecheck
 pnpm typecheck:root
 pnpm test
+pnpm test:watch
 ```
 
 Type checking is split intentionally:
 
 - `pnpm typecheck`: runs per-workspace checks through Turbo.
 - `pnpm typecheck:root`: runs a root `tsc --noEmit` over `packages/*` and `apps/*`.
+
+Testing is package-scoped for this sprint:
+
+- `pnpm test`: runs Vitest via Turbo for `packages/*`.
+- `pnpm test:watch`: starts package test watch mode.
+- Coverage reports are emitted under `packages/<name>/coverage`.
 
 ### Workspace Layout
 

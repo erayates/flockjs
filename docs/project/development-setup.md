@@ -21,6 +21,7 @@ pnpm install
 ```bash
 pnpm build
 pnpm test
+pnpm test:watch
 pnpm lint
 pnpm format:check
 pnpm format:write
@@ -42,6 +43,8 @@ pnpm test:integration
 - Preserve strict TypeScript compatibility.
 - Keep imports sorted and lint-clean before commit.
 - Run Prettier checks before opening a PR.
+- Keep package unit tests in `src/**/*.test.ts` for Vitest convention consistency.
+- Core package coverage threshold must stay at or above 80%.
 
 ## Local Hooks
 
@@ -57,6 +60,7 @@ Use `--no-verify` only for emergency situations.
 - If workspace linking fails, reinstall dependencies from repository root.
 - If type errors look stale, clear local build artifacts and rerun typecheck.
 - If `pnpm typecheck` passes but `pnpm typecheck:root` fails, verify root `tsconfig.json` includes only intended sources and excludes tests/build output.
+- If coverage output is missing, confirm tests are under `packages/*/src/**/*.test.ts` and rerun `pnpm test`.
 
 ## Related Docs
 

@@ -17,6 +17,7 @@
     "lint": "eslint src --max-warnings 0",
     "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "rimraf dist coverage"
+    "clean": "rimraf dist coverage",
+    "test:watch": "vitest --config vitest.config.ts"
   }
 }

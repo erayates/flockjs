@@ -6,7 +6,8 @@
   "scripts": {
     "build": "turbo run build",
     "lint": "turbo run lint",
-    "test": "turbo run test",
+    "test": "turbo run test --filter=./packages/*",
+    "test:watch": "turbo run test:watch --filter=./packages/* --parallel",
     "typecheck": "turbo run typecheck",
     "typecheck:root": "tsc --noEmit -p tsconfig.json",
     "typecheck:all": "pnpm run typecheck && pnpm run typecheck:root",
