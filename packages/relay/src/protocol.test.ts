@@ -114,6 +114,36 @@ describe('relay protocol', () => {
     });
   });
 
+  it('parses transport client messages', () => {
+    expect(
+      parseRelayClientMessage(
+        JSON.stringify({
+          type: 'transport',
+          signal: {
+            type: 'event',
+            roomId: 'room-a',
+            fromPeerId: 'peer-a',
+            toPeerId: 'peer-b',
+            payload: {
+              ok: true,
+            },
+          },
+        }),
+      ),
+    ).toEqual({
+      type: 'transport',
+      signal: {
+        type: 'event',
+        roomId: 'room-a',
+        fromPeerId: 'peer-a',
+        toPeerId: 'peer-b',
+        payload: {
+          ok: true,
+        },
+      },
+    });
+  });
+
   it('rejects invalid relay client payloads', () => {
     expect(parseRelayClientMessage('not-json')).toBeNull();
     expect(parseRelayClientMessage(null)).toBeNull();
@@ -144,6 +174,19 @@ describe('relay protocol', () => {
         JSON.stringify({
           type: 'leave',
           peerId: 'peer-a',
+        }),
+      ),
+    ).toBeNull();
+
+    expect(
+      parseRelayClientMessage(
+        JSON.stringify({
+          type: 'transport',
+          signal: {
+            type: 'transport:error',
+            roomId: 'room-a',
+            fromPeerId: 'peer-a',
+          },
         }),
       ),
     ).toBeNull();

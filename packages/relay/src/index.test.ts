@@ -253,6 +253,110 @@ describe(
       expect(noSignalForC).toBe(false);
     });
 
+    it('routes websocket transport messages for both targeted and broadcast delivery', async () => {
+      relayServer = createRelayServer({
+        port: 0,
+      });
+      await relayServer.start();
+
+      const clientA = new WebSocket(relayServer.getAddress());
+      const clientB = new WebSocket(relayServer.getAddress());
+      const clientC = new WebSocket(relayServer.getAddress());
+      sockets.push(clientA, clientB, clientC);
+
+      await Promise.all([waitForOpen(clientA), waitForOpen(clientB), waitForOpen(clientC)]);
+
+      for (const peerId of ['a', 'b', 'c']) {
+        const client = peerId === 'a' ? clientA : peerId === 'b' ? clientB : clientC;
+        send(client, {
+          type: 'join',
+          roomId: 'room-transport',
+          peerId,
+        });
+        await waitForMessage(client, (message) => message.type === 'joined');
+      }
+
+      send(clientA, {
+        type: 'transport',
+        signal: {
+          type: 'event',
+          roomId: 'room-transport',
+          fromPeerId: 'a',
+          toPeerId: 'b',
+          payload: {
+            scope: 'one',
+          },
+        },
+      });
+
+      const targetedAtB = await waitForMessage(
+        clientB,
+        (message) =>
+          message.type === 'transport' &&
+          (message.signal as { fromPeerId?: string } | undefined)?.fromPeerId === 'a',
+      );
+      expect(targetedAtB).toMatchObject({
+        type: 'transport',
+        signal: {
+          type: 'event',
+          roomId: 'room-transport',
+          fromPeerId: 'a',
+          toPeerId: 'b',
+          payload: {
+            scope: 'one',
+          },
+        },
+      });
+
+      const noTargetedAtC = await waitForMessage(
+        clientC,
+        (message) => message.type === 'transport',
+        150,
+      )
+        .then(() => true)
+        .catch(() => false);
+      expect(noTargetedAtC).toBe(false);
+
+      send(clientA, {
+        type: 'transport',
+        signal: {
+          type: 'hello',
+          roomId: 'room-transport',
+          fromPeerId: 'a',
+        },
+      });
+
+      const broadcastAtB = await waitForMessage(
+        clientB,
+        (message) =>
+          message.type === 'transport' &&
+          (message.signal as { type?: string } | undefined)?.type === 'hello',
+      );
+      const broadcastAtC = await waitForMessage(
+        clientC,
+        (message) =>
+          message.type === 'transport' &&
+          (message.signal as { type?: string } | undefined)?.type === 'hello',
+      );
+
+      expect(broadcastAtB).toMatchObject({
+        type: 'transport',
+        signal: {
+          type: 'hello',
+          roomId: 'room-transport',
+          fromPeerId: 'a',
+        },
+      });
+      expect(broadcastAtC).toMatchObject({
+        type: 'transport',
+        signal: {
+          type: 'hello',
+          roomId: 'room-transport',
+          fromPeerId: 'a',
+        },
+      });
+    });
+
     it('routes offer, answer, and candidate payloads for WebRTC signaling', async () => {
       relayServer = createRelayServer({
         port: 0,
@@ -486,6 +590,22 @@ describe(
         code: 'NOT_JOINED',
       });
 
+      const transportNotJoinedError = await sendAndWaitForMessage(
+        clientA,
+        {
+          type: 'transport',
+          signal: {
+            type: 'hello',
+            roomId: 'room-checks',
+            fromPeerId: 'peer-a',
+          },
+        },
+        (message) => message.type === 'error',
+      );
+      expect(transportNotJoinedError).toMatchObject({
+        code: 'NOT_JOINED',
+      });
+
       await sendAndWaitForMessage(
         clientA,
         {
@@ -565,6 +685,38 @@ describe(
         (message) => message.type === 'error',
       );
       expect(senderMismatchError).toMatchObject({
+        code: 'PEER_MISMATCH',
+      });
+
+      const transportRoomMismatchError = await sendAndWaitForMessage(
+        clientA,
+        {
+          type: 'transport',
+          signal: {
+            type: 'hello',
+            roomId: 'room-other',
+            fromPeerId: 'peer-a',
+          },
+        },
+        (message) => message.type === 'error',
+      );
+      expect(transportRoomMismatchError).toMatchObject({
+        code: 'ROOM_MISMATCH',
+      });
+
+      const transportSenderMismatchError = await sendAndWaitForMessage(
+        clientA,
+        {
+          type: 'transport',
+          signal: {
+            type: 'hello',
+            roomId: 'room-checks',
+            fromPeerId: 'peer-not-a',
+          },
+        },
+        (message) => message.type === 'error',
+      );
+      expect(transportSenderMismatchError).toMatchObject({
         code: 'PEER_MISMATCH',
       });
 

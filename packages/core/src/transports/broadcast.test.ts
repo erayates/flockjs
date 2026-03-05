@@ -151,7 +151,7 @@ describe('BroadcastTransportAdapter', () => {
     const adapterA = createBroadcastTransportAdapter('room-deserialize');
     const adapterB = createBroadcastTransportAdapter('room-deserialize');
     const onMessage = vi.fn();
-    adapterB.subscribe(onMessage);
+    adapterB.onMessage(onMessage);
 
     await adapterA.connect();
     await adapterB.connect();
@@ -174,7 +174,7 @@ describe('BroadcastTransportAdapter', () => {
   it('ignores malformed JSON messages without throwing', async () => {
     const adapter = createBroadcastTransportAdapter('room-invalid-json');
     const onMessage = vi.fn();
-    adapter.subscribe(onMessage);
+    adapter.onMessage(onMessage);
     await adapter.connect();
 
     MockBroadcastChannel.emitRaw('flockjs:room-invalid-json', '{"source":"flockjs",');
@@ -187,7 +187,7 @@ describe('BroadcastTransportAdapter', () => {
   it('ignores invalid envelope shapes', async () => {
     const adapter = createBroadcastTransportAdapter('room-invalid-shape');
     const onMessage = vi.fn();
-    adapter.subscribe(onMessage);
+    adapter.onMessage(onMessage);
     await adapter.connect();
 
     MockBroadcastChannel.emitRaw(

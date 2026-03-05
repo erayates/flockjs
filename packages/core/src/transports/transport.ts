@@ -1,6 +1,6 @@
 import type { Unsubscribe } from '../types';
 
-export type TransportKind = 'broadcast' | 'in-memory' | 'webrtc';
+export type TransportKind = 'broadcast' | 'in-memory' | 'webrtc' | 'websocket';
 
 export type TransportSignalType =
   | 'hello'
@@ -21,10 +21,23 @@ export interface TransportSignal {
   payload?: unknown;
 }
 
-export interface TransportAdapter {
+export interface ITransport {
   readonly kind: TransportKind;
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   send(signal: TransportSignal): void;
-  subscribe(handler: (signal: TransportSignal) => void): Unsubscribe;
+  broadcast(signal: TransportSignal): void;
+  onMessage(handler: (signal: TransportSignal) => void): Unsubscribe;
+}
+
+export type TransportAdapter = ITransport;
+
+export function toBroadcastSignal(signal: TransportSignal): TransportSignal {
+  if (signal.toPeerId === undefined) {
+    return signal;
+  }
+
+  const broadcastSignal = { ...signal };
+  delete broadcastSignal.toPeerId;
+  return broadcastSignal;
 }

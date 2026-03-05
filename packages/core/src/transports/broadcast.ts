@@ -1,86 +1,9 @@
 import { env } from '../internal/env';
-import { isObject } from '../internal/guards';
-import type { TransportAdapter, TransportSignal } from './transport';
-
-const BROADCAST_SOURCE = 'flockjs';
-const BROADCAST_VERSION = 1;
-const TRANSPORT_SIGNAL_TYPES = new Set<string>([
-  'hello',
-  'welcome',
-  'presence:update',
-  'leave',
-  'cursor:update',
-  'awareness:update',
-  'event',
-]);
-
-interface BroadcastEnvelope {
-  source: typeof BROADCAST_SOURCE;
-  version: typeof BROADCAST_VERSION;
-  signal: TransportSignal;
-}
-
-function isTransportSignalType(value: unknown): value is TransportSignal['type'] {
-  return typeof value === 'string' && TRANSPORT_SIGNAL_TYPES.has(value);
-}
-
-function isTransportSignal(value: unknown): value is TransportSignal {
-  if (!isObject(value)) {
-    return false;
-  }
-
-  const type = value.type;
-  const roomId = value.roomId;
-  const fromPeerId = value.fromPeerId;
-  const toPeerId = value.toPeerId;
-
-  return (
-    isTransportSignalType(type) &&
-    typeof roomId === 'string' &&
-    typeof fromPeerId === 'string' &&
-    (toPeerId === undefined || typeof toPeerId === 'string')
-  );
-}
+import { toBroadcastSignal, type TransportAdapter, type TransportSignal } from './transport';
+import { parseTransportEnvelope, serializeTransportEnvelope } from './transport.protocol';
 
 export function isBroadcastChannelAvailable(): boolean {
   return env.hasBroadcastChannel;
-}
-
-function serializeSignal(signal: TransportSignal): string {
-  const envelope: BroadcastEnvelope = {
-    source: BROADCAST_SOURCE,
-    version: BROADCAST_VERSION,
-    signal,
-  };
-
-  return JSON.stringify(envelope);
-}
-
-function deserializeSignal(payload: unknown): TransportSignal | null {
-  if (typeof payload !== 'string') {
-    return null;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(payload);
-  } catch {
-    return null;
-  }
-
-  if (!isObject(parsed)) {
-    return null;
-  }
-
-  if (parsed.source !== BROADCAST_SOURCE || parsed.version !== BROADCAST_VERSION) {
-    return null;
-  }
-
-  if (!isTransportSignal(parsed.signal)) {
-    return null;
-  }
-
-  return parsed.signal;
 }
 
 export class BroadcastTransportAdapter implements TransportAdapter {
@@ -92,8 +15,8 @@ export class BroadcastTransportAdapter implements TransportAdapter {
 
   private connected = false;
 
-  private readonly onMessage = (event: MessageEvent<unknown>): void => {
-    const signal = deserializeSignal(event.data);
+  private readonly handleChannelMessage = (event: MessageEvent<unknown>): void => {
+    const signal = parseTransportEnvelope(event.data);
     if (!signal) {
       return;
     }
@@ -115,7 +38,7 @@ export class BroadcastTransportAdapter implements TransportAdapter {
     }
 
     this.channel = new BroadcastChannel(`flockjs:${this.roomId}`);
-    this.channel.addEventListener('message', this.onMessage);
+    this.channel.addEventListener('message', this.handleChannelMessage);
     this.connected = true;
   }
 
@@ -124,7 +47,7 @@ export class BroadcastTransportAdapter implements TransportAdapter {
       return;
     }
 
-    this.channel.removeEventListener('message', this.onMessage);
+    this.channel.removeEventListener('message', this.handleChannelMessage);
     this.channel.close();
 
     this.channel = null;
@@ -137,11 +60,19 @@ export class BroadcastTransportAdapter implements TransportAdapter {
       return;
     }
 
-    const serialized = serializeSignal(signal);
+    const serialized = serializeTransportEnvelope(signal);
+    if (!serialized) {
+      return;
+    }
+
     this.channel.postMessage(serialized);
   }
 
-  public subscribe(handler: (signal: TransportSignal) => void): () => void {
+  public broadcast(signal: TransportSignal): void {
+    this.send(toBroadcastSignal(signal));
+  }
+
+  public onMessage(handler: (signal: TransportSignal) => void): () => void {
     this.listeners.add(handler);
     return () => {
       this.listeners.delete(handler);

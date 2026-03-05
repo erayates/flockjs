@@ -24,7 +24,12 @@ class MockTransportAdapter implements TransportAdapter {
     return undefined;
   }
 
-  public subscribe(handler: (signal: TransportSignal) => void): () => void {
+  public broadcast(signal: TransportSignal): void {
+    void signal;
+    return undefined;
+  }
+
+  public onMessage(handler: (signal: TransportSignal) => void): () => void {
     this.handler = handler;
     return () => {
       if (this.handler === handler) {

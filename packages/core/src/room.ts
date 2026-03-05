@@ -468,7 +468,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     try {
       const transport = selectTransportAdapter(this.id, this.peerId, this.options);
       this.transport = transport;
-      this.transportUnsubscribe = transport.subscribe((signal) => {
+      this.transportUnsubscribe = transport.onMessage((signal) => {
         this.handleSignal(signal);
       });
 
@@ -706,11 +706,18 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       return;
     }
 
-    this.transport.send({
+    const outboundSignal: TransportSignal = {
       ...signal,
       roomId: this.id,
       fromPeerId: this.peerId,
-    });
+    };
+
+    if (outboundSignal.toPeerId) {
+      this.transport.send(outboundSignal);
+      return;
+    }
+
+    this.transport.broadcast(outboundSignal);
   }
 
   private upsertRemotePeer(peer: Peer<TPresence>): void {

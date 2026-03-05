@@ -167,12 +167,12 @@ export class RelayServerImpl implements RelayServer {
       return;
     }
 
-    if (message.roomId !== context.roomId) {
-      this.sendError(socket, 'ROOM_MISMATCH', 'Signal roomId does not match joined room.');
-      return;
-    }
-
     if (message.type === 'leave') {
+      if (message.roomId !== context.roomId) {
+        this.sendError(socket, 'ROOM_MISMATCH', 'Leave roomId does not match joined room.');
+        return;
+      }
+
       if (message.peerId !== context.peerId) {
         this.sendError(socket, 'PEER_MISMATCH', 'PeerId mismatch for leave request.');
         return;
@@ -182,12 +182,32 @@ export class RelayServerImpl implements RelayServer {
       return;
     }
 
-    if (message.fromPeerId !== context.peerId) {
-      this.sendError(socket, 'PEER_MISMATCH', 'Signal sender peerId mismatch.');
+    if (message.type === 'signal') {
+      if (message.roomId !== context.roomId) {
+        this.sendError(socket, 'ROOM_MISMATCH', 'Signal roomId does not match joined room.');
+        return;
+      }
+
+      if (message.fromPeerId !== context.peerId) {
+        this.sendError(socket, 'PEER_MISMATCH', 'Signal sender peerId mismatch.');
+        return;
+      }
+
+      this.forwardSignal(context.roomId, message);
       return;
     }
 
-    this.forwardSignal(context.roomId, message);
+    if (message.signal.roomId !== context.roomId) {
+      this.sendError(socket, 'ROOM_MISMATCH', 'Transport roomId does not match joined room.');
+      return;
+    }
+
+    if (message.signal.fromPeerId !== context.peerId) {
+      this.sendError(socket, 'PEER_MISMATCH', 'Transport sender peerId mismatch.');
+      return;
+    }
+
+    this.forwardTransport(context.roomId, context.peerId, message);
   }
 
   private async handleJoinMessage(
@@ -278,6 +298,36 @@ export class RelayServerImpl implements RelayServer {
         : outboundSignal;
 
     target.send(serializeRelayServerMessage(signalMessage));
+  }
+
+  private forwardTransport(
+    roomId: string,
+    senderPeerId: string,
+    message: Extract<RelayClientMessage, { type: 'transport' }>,
+  ): void {
+    const roomPeers = this.rooms.get(roomId);
+    if (!roomPeers) {
+      return;
+    }
+
+    const payload = serializeRelayServerMessage({
+      type: 'transport',
+      signal: message.signal,
+    });
+
+    if (message.signal.toPeerId) {
+      const target = roomPeers.get(message.signal.toPeerId);
+      target?.send(payload);
+      return;
+    }
+
+    for (const [peerId, socket] of roomPeers.entries()) {
+      if (peerId === senderPeerId) {
+        continue;
+      }
+
+      socket.send(payload);
+    }
   }
 
   private removePeerFromRoom(socket: WebSocket): void {

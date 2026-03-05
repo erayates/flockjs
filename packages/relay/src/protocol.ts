@@ -45,15 +45,38 @@ const signalMessageSchema = z
     return value.description !== undefined || value.candidate !== undefined;
   });
 
+const transportSignalSchema = z.object({
+  type: z.enum([
+    'hello',
+    'welcome',
+    'presence:update',
+    'leave',
+    'cursor:update',
+    'awareness:update',
+    'event',
+  ]),
+  roomId: z.string().min(1),
+  fromPeerId: z.string().min(1),
+  toPeerId: z.string().min(1).optional(),
+  payload: z.unknown().optional(),
+});
+
+const transportMessageSchema = z.object({
+  type: z.literal('transport'),
+  signal: transportSignalSchema,
+});
+
 const relayClientMessageSchema = z.discriminatedUnion('type', [
   joinMessageSchema,
   leaveMessageSchema,
   signalMessageSchema,
+  transportMessageSchema,
 ]);
 
 export type RelayJoinMessage = z.infer<typeof joinMessageSchema>;
 export type RelaySignalMessage = z.infer<typeof signalMessageSchema>;
 export type RelayLeaveMessage = z.infer<typeof leaveMessageSchema>;
+export type RelayTransportMessage = z.infer<typeof transportMessageSchema>;
 export type RelayClientMessage = z.infer<typeof relayClientMessageSchema>;
 
 export interface RelayJoinedMessage {
@@ -86,6 +109,7 @@ export type RelayServerMessage =
   | RelayPeerJoinedMessage
   | RelayPeerLeftMessage
   | RelaySignalMessage
+  | RelayTransportMessage
   | RelayErrorMessage;
 
 export function serializeRelayServerMessage(message: RelayServerMessage): string {

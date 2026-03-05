@@ -171,7 +171,9 @@ class MockRTCPeerConnection {
   private remoteDataChannelEmitted = false;
 
   public constructor(public readonly configuration: RTCConfiguration) {
-    const pendingPartner = MockRTCPeerConnection.instances.find((instance) => instance.partner === null);
+    const pendingPartner = MockRTCPeerConnection.instances.find(
+      (instance) => instance.partner === null,
+    );
     if (pendingPartner) {
       this.partner = pendingPartner;
       pendingPartner.partner = this;
@@ -253,7 +255,9 @@ class MockRTCPeerConnection {
     remoteChannel.link(initiatorChannel);
 
     queueMicrotask(() => {
-      this.ondatachannel?.({ channel: remoteChannel as unknown as RTCDataChannel } as RTCDataChannelEvent);
+      this.ondatachannel?.({
+        channel: remoteChannel as unknown as RTCDataChannel,
+      } as RTCDataChannelEvent);
       initiatorChannel.open();
       remoteChannel.open();
     });
@@ -317,18 +321,22 @@ describe('WebRTC transport integration (mock relay semantics)', () => {
 
     const receivedByA: TransportSignal[] = [];
     const receivedByB: TransportSignal[] = [];
-    adapterA.subscribe((signal) => {
+    adapterA.onMessage((signal) => {
       receivedByA.push(signal);
     });
-    adapterB.subscribe((signal) => {
+    adapterB.onMessage((signal) => {
       receivedByB.push(signal);
     });
 
     await Promise.all([adapterA.connect(), adapterB.connect()]);
 
     await waitFor(() => {
-      const helloFromB = receivedByA.some((signal) => signal.type === 'hello' && signal.fromPeerId === 'peer-b');
-      const helloFromA = receivedByB.some((signal) => signal.type === 'hello' && signal.fromPeerId === 'peer-a');
+      const helloFromB = receivedByA.some(
+        (signal) => signal.type === 'hello' && signal.fromPeerId === 'peer-b',
+      );
+      const helloFromA = receivedByB.some(
+        (signal) => signal.type === 'hello' && signal.fromPeerId === 'peer-a',
+      );
       return helloFromA && helloFromB;
     });
 
@@ -348,9 +356,7 @@ describe('WebRTC transport integration (mock relay semantics)', () => {
     await waitFor(() => {
       return receivedByB.some((signal) => {
         return (
-          signal.type === 'event' &&
-          signal.fromPeerId === 'peer-a' &&
-          signal.toPeerId === 'peer-b'
+          signal.type === 'event' && signal.fromPeerId === 'peer-a' && signal.toPeerId === 'peer-b'
         );
       });
     });
@@ -364,7 +370,9 @@ describe('WebRTC transport integration (mock relay semantics)', () => {
 
     await adapterB.disconnect();
     await waitFor(() => {
-      return receivedByA.some((signal) => signal.type === 'leave' && signal.fromPeerId === 'peer-b');
+      return receivedByA.some(
+        (signal) => signal.type === 'leave' && signal.fromPeerId === 'peer-b',
+      );
     });
 
     await adapterA.disconnect();

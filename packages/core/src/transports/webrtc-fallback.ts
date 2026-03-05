@@ -68,7 +68,11 @@ export class WebRTCFallbackTransportAdapter<
     this.activeTransport.send(signal);
   }
 
-  public subscribe(handler: (signal: TransportSignal) => void): () => void {
+  public broadcast(signal: TransportSignal): void {
+    this.activeTransport.broadcast(signal);
+  }
+
+  public onMessage(handler: (signal: TransportSignal) => void): () => void {
     this.listeners.add(handler);
     return () => {
       this.listeners.delete(handler);
@@ -76,7 +80,7 @@ export class WebRTCFallbackTransportAdapter<
   }
 
   private attachTransport(transport: TransportAdapter): void {
-    this.transportUnsubscribe = transport.subscribe((signal) => {
+    this.transportUnsubscribe = transport.onMessage((signal) => {
       for (const listener of this.listeners) {
         listener(signal);
       }

@@ -392,7 +392,7 @@ describe('WebRTCTransportAdapter', () => {
     });
 
     const onSignal = vi.fn();
-    adapter.subscribe(onSignal);
+    adapter.onMessage(onSignal);
 
     await adapter.connect();
     await waitFor(() => MockRTCPeerConnection.instances.length === 2);
@@ -532,7 +532,7 @@ describe('WebRTCTransportAdapter', () => {
     });
 
     const onSignal = vi.fn();
-    adapter.subscribe(onSignal);
+    adapter.onMessage(onSignal);
 
     await adapter.connect();
     await waitFor(() => onSignal.mock.calls.length >= 2, 1_000);
@@ -565,7 +565,7 @@ describe('WebRTCTransportAdapter', () => {
     });
 
     const onSignal = vi.fn();
-    adapter.subscribe(onSignal);
+    adapter.onMessage(onSignal);
 
     await adapter.connect();
     await waitFor(() => MockRTCPeerConnection.instances.length === 1);
@@ -594,7 +594,7 @@ describe('WebRTCTransportAdapter', () => {
     });
 
     const onSignal = vi.fn();
-    adapter.subscribe(onSignal);
+    adapter.onMessage(onSignal);
 
     await adapter.connect();
     signalingInstances[0]?.emitDisconnected('socket-gone');

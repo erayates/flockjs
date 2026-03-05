@@ -131,7 +131,7 @@ describe('Engine helpers and transport adapters', () => {
     const inMemoryB = createInMemoryTransportAdapter('room-adapter', 'b');
 
     const listener = vi.fn();
-    inMemoryB.subscribe(listener);
+    inMemoryB.onMessage(listener);
 
     await inMemoryA.connect();
     await inMemoryB.connect();
@@ -152,7 +152,7 @@ describe('Engine helpers and transport adapters', () => {
       const broadcastA = createBroadcastTransportAdapter('room-broadcast-adapter');
       const broadcastB = createBroadcastTransportAdapter('room-broadcast-adapter');
       const onMessage = vi.fn();
-      broadcastB.subscribe(onMessage);
+      broadcastB.onMessage(onMessage);
       await broadcastA.connect();
       await broadcastB.connect();
       broadcastA.send({
@@ -167,7 +167,7 @@ describe('Engine helpers and transport adapters', () => {
 
     expect(() => {
       selectTransportAdapter('r', 'p', { transport: 'websocket' });
-    }).toThrow(/planned/);
+    }).toThrow(/requires `relayUrl`/i);
   });
 });
 

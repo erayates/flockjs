@@ -51,7 +51,7 @@ describe('createRoom', () => {
     expect(room.status).toBe('disconnected');
   });
 
-  it('throws a typed error for unsupported websocket transport mode', async () => {
+  it('throws a typed error when websocket transport is missing relayUrl', async () => {
     const room = createRoom('room-unsupported', {
       transport: 'websocket',
     });

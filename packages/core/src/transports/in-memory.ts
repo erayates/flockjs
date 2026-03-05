@@ -1,4 +1,4 @@
-import type { TransportAdapter, TransportSignal } from './transport';
+import { toBroadcastSignal, type TransportAdapter, type TransportSignal } from './transport';
 
 interface InMemoryChannel {
   subscribers: Map<string, (signal: TransportSignal) => void>;
@@ -69,12 +69,27 @@ export class InMemoryTransportAdapter implements TransportAdapter {
       return;
     }
 
+    if (!signal.toPeerId) {
+      this.broadcast(signal);
+      return;
+    }
+
+    const subscriber = this.channel.subscribers.get(signal.toPeerId);
+    subscriber?.(signal);
+  }
+
+  public broadcast(signal: TransportSignal): void {
+    if (!this.connected || !this.channel) {
+      return;
+    }
+
+    const outboundSignal = toBroadcastSignal(signal);
     for (const subscriber of this.channel.subscribers.values()) {
-      subscriber(signal);
+      subscriber(outboundSignal);
     }
   }
 
-  public subscribe(handler: (signal: TransportSignal) => void): () => void {
+  public onMessage(handler: (signal: TransportSignal) => void): () => void {
     this.listeners.add(handler);
     return () => {
       this.listeners.delete(handler);

@@ -40,7 +40,18 @@ class MockTransportAdapter implements TransportAdapter {
     this.sentSignals.push(signal);
   }
 
-  public subscribe(handler: (signal: TransportSignal) => void): () => void {
+  public broadcast(signal: TransportSignal): void {
+    if (signal.toPeerId === undefined) {
+      this.sentSignals.push(signal);
+      return;
+    }
+
+    const broadcastSignal = { ...signal };
+    delete broadcastSignal.toPeerId;
+    this.sentSignals.push(broadcastSignal);
+  }
+
+  public onMessage(handler: (signal: TransportSignal) => void): () => void {
     this.listeners.add(handler);
     return () => {
       this.listeners.delete(handler);
@@ -111,7 +122,7 @@ describe('WebRTCFallbackTransportAdapter', () => {
       relayUrl: 'ws://relay.local',
     });
     const received: TransportSignal[] = [];
-    adapter.subscribe((signal) => {
+    adapter.onMessage((signal) => {
       received.push(signal);
     });
 

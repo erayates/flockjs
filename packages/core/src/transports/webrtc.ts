@@ -1,34 +1,18 @@
 import { createFlockError } from '../flock-error';
 import { env } from '../internal/env';
 import type { FlockError, PresenceData, RoomOptions } from '../types';
-import type { TransportAdapter, TransportSignal } from './transport';
+import { toBroadcastSignal, type TransportAdapter, type TransportSignal } from './transport';
+import { parseTransportEnvelope, serializeTransportEnvelope } from './transport.protocol';
 import { type SignalingServerMessage, type SignalingSignalMessage } from './webrtc.protocol';
 import { WebRTCSignalingClient, type WebRTCSignalingClientOptions } from './webrtc.signaling';
 
 const DEFAULT_STUN_URL = 'stun:stun.l.google.com:19302';
 const DEFAULT_ICE_GATHER_TIMEOUT_MS = 5_000;
 const DEFAULT_DATA_CHANNEL_PROTOCOL = 'flockjs-v1';
-const DATA_CHANNEL_SOURCE = 'flockjs';
-const DATA_CHANNEL_VERSION = 1;
 const DATA_CHANNEL_OPEN = 'open';
 const DATA_CHANNEL_CLOSED = 'closed';
 const PEER_CONNECTION_CLOSED = 'closed';
 const PEER_FAILURE_STATES = new Set<RTCPeerConnectionState>(['failed', 'disconnected', 'closed']);
-const SIGNAL_TYPES = new Set<string>([
-  'hello',
-  'welcome',
-  'presence:update',
-  'leave',
-  'cursor:update',
-  'awareness:update',
-  'event',
-]);
-
-interface DataChannelEnvelope {
-  source: typeof DATA_CHANNEL_SOURCE;
-  version: typeof DATA_CHANNEL_VERSION;
-  signal: TransportSignal;
-}
 
 interface PeerConnectionContext {
   peerId: string;
@@ -41,60 +25,6 @@ interface PeerConnectionContext {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
-}
-
-function isTransportSignalType(value: unknown): value is TransportSignal['type'] {
-  return typeof value === 'string' && SIGNAL_TYPES.has(value);
-}
-
-function isTransportSignal(value: unknown): value is TransportSignal {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    isTransportSignalType(value.type) &&
-    typeof value.roomId === 'string' &&
-    typeof value.fromPeerId === 'string' &&
-    (value.toPeerId === undefined || typeof value.toPeerId === 'string')
-  );
-}
-
-function serializeDataChannelSignal(signal: TransportSignal): string {
-  const envelope: DataChannelEnvelope = {
-    source: DATA_CHANNEL_SOURCE,
-    version: DATA_CHANNEL_VERSION,
-    signal,
-  };
-
-  return JSON.stringify(envelope);
-}
-
-function deserializeDataChannelSignal(payload: unknown): TransportSignal | null {
-  if (typeof payload !== 'string') {
-    return null;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(payload);
-  } catch {
-    return null;
-  }
-
-  if (!isRecord(parsed)) {
-    return null;
-  }
-
-  if (parsed.source !== DATA_CHANNEL_SOURCE || parsed.version !== DATA_CHANNEL_VERSION) {
-    return null;
-  }
-
-  if (!isTransportSignal(parsed.signal)) {
-    return null;
-  }
-
-  return parsed.signal;
 }
 
 function toPlainCandidate(candidate: RTCIceCandidate): RTCIceCandidateInit {
@@ -272,17 +202,26 @@ export class WebRTCTransportAdapter<
       return;
     }
 
-    if (signal.toPeerId) {
-      this.sendToPeer(signal.toPeerId, signal);
+    if (!signal.toPeerId) {
+      this.broadcast(signal);
       return;
     }
 
+    this.sendToPeer(signal.toPeerId, signal);
+  }
+
+  public broadcast(signal: TransportSignal): void {
+    if (!this.connected) {
+      return;
+    }
+
+    const outboundSignal = toBroadcastSignal(signal);
     for (const peerId of this.peerConnections.keys()) {
-      this.sendToPeer(peerId, signal);
+      this.sendToPeer(peerId, outboundSignal);
     }
   }
 
-  public subscribe(handler: (signal: TransportSignal) => void): () => void {
+  public onMessage(handler: (signal: TransportSignal) => void): () => void {
     this.listeners.add(handler);
     return () => {
       this.listeners.delete(handler);
@@ -356,7 +295,7 @@ export class WebRTCTransportAdapter<
     };
 
     channel.onmessage = (event) => {
-      const signal = deserializeDataChannelSignal(event.data);
+      const signal = parseTransportEnvelope(event.data);
       if (!signal) {
         return;
       }
@@ -543,7 +482,11 @@ export class WebRTCTransportAdapter<
       return;
     }
 
-    const serialized = serializeDataChannelSignal(signal);
+    const serialized = serializeTransportEnvelope(signal);
+    if (!serialized) {
+      return;
+    }
+
     context.dataChannel.send(serialized);
   }
 
