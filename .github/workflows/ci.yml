@@ -1,0 +1,20 @@
+name: CI (Stub)
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  ci-stub:
+    name: CI Stub (EP-01 #001)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stub Notice
+        run: |
+          echo "CI is intentionally stubbed in EP-01 #001."
+          echo "Full install/lint/typecheck/test/build workflow will be added in EP-01 #005."

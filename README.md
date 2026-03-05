@@ -86,6 +86,32 @@ window.addEventListener('beforeunload', () => {
 - [Contributing guide](CONTRIBUTING.md)
 - [Roadmap](ROADMAP.md)
 
+## Monorepo Setup
+
+Issue `EP-01 #001` scaffolds this repository as a `pnpm` + `turborepo` monorepo with buildable package stubs.
+
+### Prerequisites
+
+- Node.js `20` (pinned via `.nvmrc` and `.node-version`)
+- `pnpm`
+
+### Install and Validate
+
+```bash
+pnpm install
+pnpm build
+pnpm lint
+pnpm typecheck
+pnpm test
+```
+
+### Workspace Layout
+
+- `packages/*`: core SDK and adapters (`@flockjs/*`)
+- `apps/*`: internal applications
+- `examples/*`: placeholder examples for future implementation
+- `benchmarks/`: placeholder benchmark suite
+
 ## Development Direction
 
 Project execution is tracked across 6 sprints and 9 epics:
