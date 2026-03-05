@@ -1,0 +1,164 @@
+# Contributing to FlockJS
+
+Thanks for contributing to FlockJS.
+
+This guide defines the expected workflow for code, docs, and community contributions.
+
+## Audience
+
+- New contributors
+- Returning contributors
+- Maintainers reviewing pull requests
+
+## Repository
+
+- Canonical repo: <https://github.com/erayates/flockjs>
+- Default branch: `main`
+
+## Contribution Types
+
+All contribution types are welcome:
+
+- Bug fixes
+- New features
+- Documentation improvements
+- Tests and test infrastructure
+- Tooling and CI improvements
+- Performance investigations
+
+## Before You Start
+
+1. Search existing issues and discussions to avoid duplicates.
+2. For larger changes, open or comment on an issue first.
+3. Confirm scope and acceptance criteria before implementation.
+
+## Local Setup
+
+### Prerequisites
+
+- Node.js `18+` (Node `20` also supported in CI)
+- `pnpm`
+- `git`
+
+### Setup Steps
+
+```bash
+git clone https://github.com/erayates/flockjs.git
+cd flockjs
+pnpm install
+```
+
+When workspace scaffolding is fully in place, the expected root commands are:
+
+```bash
+pnpm build
+pnpm test
+pnpm lint
+pnpm typecheck
+```
+
+## Branching Strategy
+
+- Branch from `main`.
+- Use descriptive branch names:
+  - `feat/<area>-<short-description>`
+  - `fix/<area>-<short-description>`
+  - `docs/<area>-<short-description>`
+
+Examples:
+
+- `feat/core-room-events`
+- `fix/relay-auth-timeout`
+- `docs/getting-started-quickstart`
+
+## Commit Convention
+
+Use Conventional Commits:
+
+- `feat: add room reconnection backoff options`
+- `fix: prevent duplicate peer leave events`
+- `docs: improve transport selection guide`
+- `test: add integration test for presence updates`
+
+Recommended types:
+
+- `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`
+
+## Pull Request Requirements
+
+Every PR should:
+
+1. Link to an issue or explain why no issue exists.
+2. Describe what changed and why.
+3. Include tests for behavior changes.
+4. Update docs when API/behavior changes.
+5. Pass CI checks.
+
+### PR Checklist
+
+- [ ] Scope is focused and minimal.
+- [ ] Tests added or updated.
+- [ ] Existing tests pass.
+- [ ] Docs updated (if relevant).
+- [ ] No unrelated changes bundled.
+
+## Code Quality Standards
+
+- Keep changes small and reviewable.
+- Prefer explicit types over `any`.
+- Maintain strict TypeScript compatibility.
+- Preserve backward compatibility where possible; call out breaking changes clearly.
+- Add comments only where logic is non-obvious.
+
+## Testing Expectations
+
+Expected quality bar for merged changes:
+
+- Unit tests for deterministic logic
+- Integration tests for multi-peer behavior where applicable
+- Reproduction test for bug fixes
+
+Core package target:
+
+- Coverage goal: `>= 80%` before `v1.0`
+
+## Documentation Contributions
+
+When updating docs:
+
+- Follow `docs/STYLE_GUIDE.md`
+- Prefer concise, example-first explanations
+- Mark unsupported features as **Planned**
+- Keep terminology consistent (`room`, `peer`, `presence`, `awareness`, `state`, `events`)
+
+## Review and Merge Process
+
+1. Maintainer reviews PR for correctness, scope, and clarity.
+2. Feedback is addressed in follow-up commits.
+3. At least one maintainer approval is required.
+4. PR is merged when CI is green.
+
+## Reporting Bugs
+
+Use the bug report template:
+
+- <https://github.com/erayates/flockjs/issues/new/choose>
+
+Include:
+
+- Environment and versions
+- Reproduction steps
+- Expected behavior
+- Actual behavior
+- Logs/errors
+
+## Security Reports
+
+Do not file security issues publicly. Use the workflow in [SECURITY.md](SECURITY.md).
+
+## Related Docs
+
+- [Support](SUPPORT.md)
+- [Governance](GOVERNANCE.md)
+- [Documentation style guide](docs/STYLE_GUIDE.md)
+- [Project development setup](docs/project/development-setup.md)
