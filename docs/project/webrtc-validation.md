@@ -2,12 +2,13 @@
 
 Audience: contributors.
 
-This checklist validates EP-02 `#011` acceptance behavior for `transport: 'webrtc'`:
+This checklist validates EP-02 `#011` / `#012` acceptance behavior for `transport: 'webrtc'`:
 
 - two-peer connection across machines
 - STUN default and override behavior
 - ICE gather default timeout (`5000ms`) and explicit timeout validation
 - DataChannel defaults (`ordered: true`, reliable by default)
+- connect-time BroadcastChannel fallback when signaling is unavailable on the same origin
 - room lifecycle events (`connected`, `peer:join`, `peer:leave`, `disconnected`, `error`)
 
 ## 1) Start Relay Signaling Server
@@ -74,7 +75,20 @@ Default behavior if omitted:
    - room emits `disconnected` with reason
    - room status transitions to `disconnected`
 
-## 4) ICE Timeout Verification
+## 4) BroadcastChannel Fallback Verification
+
+1. Open two clients on the same origin (for example, two tabs of the same local app build).
+2. Configure both clients with `transport: 'webrtc'` and an unreachable `relayUrl` value.
+3. Keep `BroadcastChannel` available in the runtime.
+4. Expected:
+   - both clients still emit `connected`
+   - both observe `peer:join`
+   - event payloads still flow between the two tabs
+5. Confirm this is same-origin only:
+   - cross-machine peers should not connect in this fallback mode
+   - if `BroadcastChannel` is unavailable, the connect attempt should fail instead of silently downgrading
+
+## 5) ICE Timeout Verification
 
 1. Temporarily set `webrtc.iceGatherTimeoutMs` to a low value (for example `25`).
 2. Induce a gather timeout condition in the test environment/network.
@@ -83,7 +97,7 @@ Default behavior if omitted:
    - room emits `error`
 4. Reset timeout to default (`5000`) after validation.
 
-## 5) maxPeers Verification
+## 6) maxPeers Verification
 
 1. Configure `maxPeers` to a small value (for example `2` total peers including self).
 2. Attempt to join additional peers.

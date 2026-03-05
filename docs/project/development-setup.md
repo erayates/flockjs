@@ -39,7 +39,7 @@ Additional integration workflow (planned):
 pnpm test:integration
 ```
 
-Run local relay signaling server for WebRTC validation:
+Run the self-hostable `@flockjs/relay` signaling server locally for WebRTC validation:
 
 ```bash
 pnpm --filter @flockjs/relay build
@@ -89,6 +89,7 @@ Use `--no-verify` only for emergency situations.
 - If coverage output is missing, confirm tests are under `packages/*/src/**/*.test.ts` and rerun `pnpm test`.
 - If releases fail before publish, confirm `NPM_TOKEN` is configured in repository secrets.
 - If WebRTC peers do not connect, verify `relayUrl` points to a reachable `@flockjs/relay` instance and check browser console ICE errors.
+- Same-origin BroadcastChannel fallback only occurs during the initial WebRTC connect attempt when signaling is unavailable.
 
 ## Related Docs
 

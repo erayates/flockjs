@@ -12,17 +12,18 @@ A `room` is the primary collaboration scope in FlockJS.
 
 ## Transport Modes
 
-| Transport   | Typical use                                 | Server required          | Notes                                                 |
-| ----------- | ------------------------------------------- | ------------------------ | ----------------------------------------------------- |
-| `webrtc`    | small collaborative rooms across machines   | Yes (signaling relay)    | P2P DataChannel mesh after signaling                  |
-| `broadcast` | same-browser, same-origin tabs              | No                       | JSON-envelope messaging + unload-aware leave handling |
-| `websocket` | larger rooms or strict network environments | Yes (`@flockjs/relay`)   | Planned transport mode                                |
-| `auto`      | choose best available option                | Depends on fallback path | Recommended starting mode                             |
+| Transport   | Typical use                                 | Server required          | Notes                                                                                                                              |
+| ----------- | ------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `webrtc`    | small collaborative rooms across machines   | Yes (relay for WebRTC)   | P2P DataChannel mesh after signaling; same-origin fallback uses BroadcastChannel only when signaling is unavailable during connect |
+| `broadcast` | same-browser, same-origin tabs              | No                       | JSON-envelope messaging + unload-aware leave handling                                                                              |
+| `websocket` | larger rooms or strict network environments | Yes (`@flockjs/relay`)   | Planned transport mode                                                                                                             |
+| `auto`      | choose best available option                | Depends on fallback path | Recommended starting mode                                                                                                          |
 
 ## Recommended Defaults
 
 - Start with `transport: 'auto'` for same-tab baseline behavior.
 - Use `transport: 'webrtc'` with `relayUrl` for cross-machine collaboration.
+- If initial signaling is unavailable and peers share the same origin, `transport: 'webrtc'` falls back to BroadcastChannel automatically.
 - Keep `maxPeers` explicit for mesh safety (for example `maxPeers: 8`).
 - Default STUN fallback is Google public STUN (`stun:stun.l.google.com:19302`) when `stunUrls` is omitted.
 - Default ICE gather timeout is `5000ms` (`webrtc.iceGatherTimeoutMs`).
@@ -34,6 +35,7 @@ A `room` is the primary collaboration scope in FlockJS.
 
 - Broadcast transport serializes each signal as a versioned JSON envelope before delivery.
 - In browser contexts, rooms auto-handle `beforeunload` and `pagehide` to trigger disconnect and propagate peer leave events.
+- WebRTC fallback uses the same BroadcastChannel transport semantics, but only during the initial connect attempt and only for same-origin peers.
 
 ## STUN/TURN Production Notes
 

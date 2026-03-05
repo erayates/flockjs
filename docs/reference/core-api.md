@@ -37,11 +37,13 @@ interface RoomOptions {
 }
 ```
 
-Transport support in EP-02 `#011`:
+Transport support in EP-02 `#011` / `#012`:
 
 - Available baseline: `auto`, `broadcast`, `webrtc`
 - Planned: `websocket`
-- `webrtc` requires `relayUrl` for SDP/ICE signaling.
+- `webrtc` uses `relayUrl` for SDP/ICE signaling and falls back to BroadcastChannel during initial connect when signaling is unavailable and same-origin broadcast is available.
+- `webrtc` still fails hard when `relayUrl` is missing, `RTCPeerConnection` is unavailable, or the relay rejects the join/auth request.
+- Broadcast fallback is connect-time only; later signaling disconnects still emit `disconnected`.
 - Default STUN server: `stun:stun.l.google.com:19302` (override with `stunUrls`).
 - Default ICE gather timeout: `5000ms` (override with `webrtc.iceGatherTimeoutMs`).
 - DataChannel default: ordered and reliable delivery (`ordered: true`, no `maxRetransmits` set).

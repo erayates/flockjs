@@ -402,6 +402,10 @@ describe('WebRTCSignalingClient', () => {
       await expect(promise).rejects.toMatchObject({
         code: 'NETWORK_ERROR',
         recoverable: false,
+        cause: {
+          source: 'webrtc-signaling',
+          kind: 'join-timeout',
+        },
       });
     }
 
@@ -412,6 +416,10 @@ describe('WebRTCSignalingClient', () => {
       sockets[0]?.emitError();
       await expect(promise).rejects.toMatchObject({
         code: 'NETWORK_ERROR',
+        cause: {
+          source: 'webrtc-signaling',
+          kind: 'socket-error',
+        },
       });
     }
 
@@ -422,6 +430,10 @@ describe('WebRTCSignalingClient', () => {
       sockets[0]?.emitClose('join-close');
       await expect(promise).rejects.toMatchObject({
         message: 'join-close',
+        cause: {
+          source: 'webrtc-signaling',
+          kind: 'socket-closed-during-join',
+        },
       });
     }
   });
@@ -460,6 +472,51 @@ describe('WebRTCSignalingClient', () => {
     await expect(connectPromise).rejects.toMatchObject({
       message: 'join-denied',
       code: 'NETWORK_ERROR',
+      cause: {
+        source: 'webrtc-signaling',
+        kind: 'server-rejected',
+        serverCode: 'FORBIDDEN',
+      },
     });
+  });
+
+  it('classifies missing runtime WebSocket as signaling unavailable', () => {
+    const originalWebSocket = globalThis.WebSocket;
+
+    Object.defineProperty(globalThis, 'WebSocket', {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    });
+
+    try {
+      try {
+        return new WebRTCSignalingClient({
+          roomId: 'room-no-websocket',
+          peerId: 'peer-a',
+          relayUrl: 'ws://relay.local',
+          onPeerJoined: vi.fn(),
+          onPeerLeft: vi.fn(),
+          onSignal: vi.fn(),
+          onDisconnected: vi.fn(),
+        });
+      } catch (error) {
+        expect(error).toMatchObject({
+          cause: {
+            source: 'webrtc-signaling',
+            kind: 'socket-unavailable',
+          },
+        });
+        return;
+      }
+
+      throw new Error('Expected constructor to throw when WebSocket is unavailable.');
+    } finally {
+      Object.defineProperty(globalThis, 'WebSocket', {
+        configurable: true,
+        writable: true,
+        value: originalWebSocket,
+      });
+    }
   });
 });

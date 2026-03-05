@@ -52,7 +52,8 @@ EP-02 `#011` baseline note:
 
 - `RoomStatus`, `Peer`, and `FlockError` are now implemented in the core runtime.
 - Broadcast-based peer discovery is available via `transport: 'auto' | 'broadcast'`.
-- WebRTC mesh transport is available via `transport: 'webrtc'` with relay signaling.
+- WebRTC mesh transport is available via `transport: 'webrtc'` with relay signaling, plus connect-time BroadcastChannel fallback when signaling is unavailable on the same origin.
+- `relayUrl` remains the canonical signaling URL for real WebRTC negotiation.
 - BroadcastChannel payloads are serialized and validated via a versioned JSON envelope.
 - Browser room instances auto-register unload handlers (`beforeunload`, `pagehide`) to propagate `peer:leave`.
 - `websocket` transport path remains planned.

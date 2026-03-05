@@ -3,7 +3,7 @@ import type { FlockError, PresenceData, RoomOptions } from '../types';
 import { createBroadcastTransportAdapter, isBroadcastChannelAvailable } from './broadcast';
 import { createInMemoryTransportAdapter } from './in-memory';
 import type { TransportAdapter } from './transport';
-import { createWebRTCTransportAdapter } from './webrtc';
+import { createWebRTCFallbackTransportAdapter } from './webrtc-fallback';
 
 function createUnsupportedWebSocketTransportError(): FlockError {
   return createFlockError(
@@ -31,7 +31,7 @@ export function selectTransportAdapter<TPresence extends PresenceData>(
 
   if (mode === 'webrtc') {
     try {
-      return createWebRTCTransportAdapter(roomId, peerId, options);
+      return createWebRTCFallbackTransportAdapter(roomId, peerId, options);
     } catch (error) {
       throw createWebRTCTransportError(error);
     }

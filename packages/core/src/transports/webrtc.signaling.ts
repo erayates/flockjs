@@ -9,6 +9,19 @@ import {
 
 const DEFAULT_JOIN_TIMEOUT_MS = 5_000;
 const WEBSOCKET_OPEN = 1;
+const SIGNALING_FAILURE_KINDS = new Set<string>([
+  'socket-unavailable',
+  'socket-error',
+  'socket-closed-during-join',
+  'join-timeout',
+  'server-rejected',
+]);
+const FALLBACK_ELIGIBLE_FAILURE_KINDS = new Set<string>([
+  'socket-unavailable',
+  'socket-error',
+  'socket-closed-during-join',
+  'join-timeout',
+]);
 
 interface MessageEventLike {
   data: unknown;
@@ -37,6 +50,19 @@ export interface WebSocketLike extends EventTargetLike {
 
 export type WebSocketFactory = (url: string) => WebSocketLike;
 
+export type WebRTCSignalingFailureKind =
+  | 'socket-unavailable'
+  | 'socket-error'
+  | 'socket-closed-during-join'
+  | 'join-timeout'
+  | 'server-rejected';
+
+export interface WebRTCSignalingFailure {
+  source: 'webrtc-signaling';
+  kind: WebRTCSignalingFailureKind;
+  serverCode?: string;
+}
+
 export interface WebRTCSignalingClientOptions {
   roomId: string;
   peerId: string;
@@ -50,6 +76,56 @@ export interface WebRTCSignalingClientOptions {
   onDisconnected(reason?: string): void;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function createWebRTCSignalingFailure(
+  kind: WebRTCSignalingFailureKind,
+  serverCode?: string,
+): WebRTCSignalingFailure {
+  return serverCode === undefined
+    ? {
+        source: 'webrtc-signaling',
+        kind,
+      }
+    : {
+        source: 'webrtc-signaling',
+        kind,
+        serverCode,
+      };
+}
+
+function isWebRTCSignalingFailure(value: unknown): value is WebRTCSignalingFailure {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    value.source === 'webrtc-signaling' &&
+    typeof value.kind === 'string' &&
+    SIGNALING_FAILURE_KINDS.has(value.kind) &&
+    (value.serverCode === undefined || typeof value.serverCode === 'string')
+  );
+}
+
+export function readWebRTCSignalingFailure(error: unknown): WebRTCSignalingFailure | null {
+  if (isWebRTCSignalingFailure(error)) {
+    return error;
+  }
+
+  if (error instanceof Error && 'cause' in error) {
+    return readWebRTCSignalingFailure(error.cause);
+  }
+
+  return null;
+}
+
+export function isWebRTCSignalingFallbackEligibleError(error: unknown): boolean {
+  const failure = readWebRTCSignalingFailure(error);
+  return failure !== null && FALLBACK_ELIGIBLE_FAILURE_KINDS.has(failure.kind);
+}
+
 function resolveWebSocketFactory(factory?: WebSocketFactory): WebSocketFactory {
   if (factory) {
     return factory;
@@ -60,6 +136,7 @@ function resolveWebSocketFactory(factory?: WebSocketFactory): WebSocketFactory {
       'NETWORK_ERROR',
       'WebSocket is required for WebRTC signaling but is not available in this runtime.',
       false,
+      createWebRTCSignalingFailure('socket-unavailable'),
     );
   }
 
@@ -258,6 +335,7 @@ export class WebRTCSignalingClient {
         finish(
           toSignalingError(
             `Timed out waiting for signaling join acknowledgement (${timeoutMs}ms).`,
+            createWebRTCSignalingFailure('join-timeout'),
           ),
         );
       }, timeoutMs);
@@ -294,17 +372,27 @@ export class WebRTCSignalingClient {
         }
 
         if (message.type === 'error') {
-          finish(toSignalingError(message.message));
+          finish(
+            toSignalingError(
+              message.message,
+              createWebRTCSignalingFailure('server-rejected', message.code),
+            ),
+          );
         }
       };
 
       const onError = (): void => {
-        finish(toSignalingError('Failed to establish signaling socket.'));
+        finish(
+          toSignalingError(
+            'Failed to establish signaling socket.',
+            createWebRTCSignalingFailure('socket-error'),
+          ),
+        );
       };
 
       const onClose = (event: CloseEventLike): void => {
         const reason = typeof event.reason === 'string' ? event.reason : 'Signaling socket closed.';
-        finish(toSignalingError(reason));
+        finish(toSignalingError(reason, createWebRTCSignalingFailure('socket-closed-during-join')));
       };
 
       cleanup = (): void => {
