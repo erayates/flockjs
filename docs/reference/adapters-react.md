@@ -24,16 +24,16 @@ function App() {
 
 ## Hooks
 
-| Hook | Returns | Purpose |
-|---|---|---|
-| `useRoom()` | `Room` | access low-level room instance |
-| `usePresence()` | `{ self, others, all }` | reactive participant data |
-| `useCursors()` | `{ ref, cursors, mount }` | cursor tracking/rendering |
-| `useSharedState(key, opts)` | `[value, setValue]` | synchronized state |
-| `useAwareness()` | `{ set, others }` | ephemeral peer context |
-| `useEvent(name, handler)` | `emit` function | subscribe and emit |
-| `usePeers()` | `Peer[]` | connected peers |
-| `useConnectionStatus()` | `RoomStatus` | current room status |
+| Hook                        | Returns                   | Purpose                        |
+| --------------------------- | ------------------------- | ------------------------------ |
+| `useRoom()`                 | `Room`                    | access low-level room instance |
+| `usePresence()`             | `{ self, others, all }`   | reactive participant data      |
+| `useCursors()`              | `{ ref, cursors, mount }` | cursor tracking/rendering      |
+| `useSharedState(key, opts)` | `[value, setValue]`       | synchronized state             |
+| `useAwareness()`            | `{ set, others }`         | ephemeral peer context         |
+| `useEvent(name, handler)`   | `emit` function           | subscribe and emit             |
+| `usePeers()`                | `Peer[]`                  | connected peers                |
+| `useConnectionStatus()`     | `RoomStatus`              | current room status            |
 
 ## Example
 
@@ -48,7 +48,9 @@ function PollWidget() {
 
   return (
     <div>
-      <p>Yes: {votes.yes} | No: {votes.no}</p>
+      <p>
+        Yes: {votes.yes} | No: {votes.no}
+      </p>
       <button onClick={() => setVotes((v) => ({ ...v, yes: v.yes + 1 }))}>Vote Yes</button>
     </div>
   );

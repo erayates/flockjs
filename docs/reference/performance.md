@@ -4,11 +4,11 @@ Audience: users and contributors.
 
 ## Transport Characteristics
 
-| Metric | WebRTC (P2P) | WebSocket relay | BroadcastChannel |
-|---|---|---|---|
-| Typical same-city latency | 8-30ms | 15-50ms | <1ms |
-| Recommended room size | 8-12 peers | 500+ peers | same-browser only |
-| Setup complexity | low | medium | low |
+| Metric                    | WebRTC (P2P) | WebSocket relay | BroadcastChannel  |
+| ------------------------- | ------------ | --------------- | ----------------- |
+| Typical same-city latency | 8-30ms       | 15-50ms         | <1ms              |
+| Recommended room size     | 8-12 peers   | 500+ peers      | same-browser only |
+| Setup complexity          | low          | medium          | low               |
 
 ## Optimization
 

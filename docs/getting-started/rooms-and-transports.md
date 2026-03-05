@@ -12,12 +12,12 @@ A `room` is the primary collaboration scope in FlockJS.
 
 ## Transport Modes
 
-| Transport | Typical use | Server required | Notes |
-|---|---|---|---|
-| `webrtc` | small collaborative rooms | No app server (STUN/TURN infra still needed) | Best default for low-latency peer sync |
-| `broadcast` | same-browser, same-origin tabs | No | Useful local/dev multi-tab behavior |
-| `websocket` | larger rooms or strict network environments | Yes (`@flockjs/relay`) | Centralized relay path |
-| `auto` | choose best available option | Depends on fallback path | Recommended starting mode |
+| Transport   | Typical use                                 | Server required                              | Notes                                  |
+| ----------- | ------------------------------------------- | -------------------------------------------- | -------------------------------------- |
+| `webrtc`    | small collaborative rooms                   | No app server (STUN/TURN infra still needed) | Best default for low-latency peer sync |
+| `broadcast` | same-browser, same-origin tabs              | No                                           | Useful local/dev multi-tab behavior    |
+| `websocket` | larger rooms or strict network environments | Yes (`@flockjs/relay`)                       | Centralized relay path                 |
+| `auto`      | choose best available option                | Depends on fallback path                     | Recommended starting mode              |
 
 ## Recommended Defaults
 
@@ -39,10 +39,7 @@ Example:
 ```ts
 const room = createRoom('doc-123', {
   transport: 'webrtc',
-  stunUrls: [
-    'stun:stun.example.com:3478',
-    'turn:turn.example.com:3478?transport=udp',
-  ],
+  stunUrls: ['stun:stun.example.com:3478', 'turn:turn.example.com:3478?transport=udp'],
 });
 ```
 

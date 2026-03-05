@@ -33,13 +33,13 @@ console.log(diagnostics);
 
 ## Common Issues
 
-| Symptom | Likely cause | Action |
-|---|---|---|
-| Cross-network peers do not connect | STUN/TURN path unavailable | configure reliable STUN/TURN |
-| State sync feels slow | oversized state payloads | prefer `patch` and reduce payload |
-| Cursor jitter | update frequency too high | throttle cursor updates |
-| Room saturates quickly | `maxPeers` too low for mesh | increase limit or move to relay |
-| Duplicate reconnect side effects | stale lifecycle handling | normalize reconnect transitions |
+| Symptom                            | Likely cause                | Action                            |
+| ---------------------------------- | --------------------------- | --------------------------------- |
+| Cross-network peers do not connect | STUN/TURN path unavailable  | configure reliable STUN/TURN      |
+| State sync feels slow              | oversized state payloads    | prefer `patch` and reduce payload |
+| Cursor jitter                      | update frequency too high   | throttle cursor updates           |
+| Room saturates quickly             | `maxPeers` too low for mesh | increase limit or move to relay   |
+| Duplicate reconnect side effects   | stale lifecycle handling    | normalize reconnect transitions   |
 
 ## Triage Checklist
 

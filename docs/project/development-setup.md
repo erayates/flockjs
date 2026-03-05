@@ -22,6 +22,8 @@ pnpm install
 pnpm build
 pnpm test
 pnpm lint
+pnpm format:check
+pnpm format:write
 pnpm typecheck
 pnpm typecheck:root
 pnpm typecheck:all
@@ -38,6 +40,17 @@ pnpm test:integration
 - Prefer small, focused PRs.
 - Keep docs and tests in the same PR as behavior changes.
 - Preserve strict TypeScript compatibility.
+- Keep imports sorted and lint-clean before commit.
+- Run Prettier checks before opening a PR.
+
+## Local Hooks
+
+Husky is configured to enforce quality checks during commits:
+
+- `pre-commit`: `pnpm lint` + `pnpm typecheck`
+- `commit-msg`: commitlint conventional-commit validation
+
+Use `--no-verify` only for emergency situations.
 
 ## Troubleshooting
 

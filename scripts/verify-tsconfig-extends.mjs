@@ -28,10 +28,14 @@ for (const root of roots) {
 
       const json = JSON.parse(readFileSync(tsconfigPath, 'utf8'));
       if (json.extends !== expected) {
-        failures.push(`${tsconfigPath}: expected extends to be "${expected}", received "${json.extends}"`);
+        failures.push(
+          `${tsconfigPath}: expected extends to be "${expected}", received "${json.extends}"`,
+        );
       }
     } catch (error) {
-      failures.push(`${tsconfigPath}: missing or unreadable (${error instanceof Error ? error.message : String(error)})`);
+      failures.push(
+        `${tsconfigPath}: missing or unreadable (${error instanceof Error ? error.message : String(error)})`,
+      );
     }
   }
 }

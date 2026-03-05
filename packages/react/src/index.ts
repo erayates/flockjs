@@ -13,7 +13,7 @@ export function createReactHealth(): ReactHealth {
     packageName: '@flockjs/react',
     status: 'ok',
     dependencies: {
-      core: createCoreHealth()
-    }
+      core: createCoreHealth(),
+    },
   };
 }

@@ -55,6 +55,8 @@ pnpm build
 pnpm test
 pnpm lint
 pnpm typecheck
+pnpm format:check
+pnpm format:write
 ```
 
 ## Branching Strategy
@@ -84,6 +86,8 @@ Recommended types:
 
 - `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`
 
+Commit messages are validated by commitlint (`@commitlint/config-conventional`) through a Husky `commit-msg` hook.
+
 ## Pull Request Requirements
 
 Every PR should:
@@ -109,6 +113,17 @@ Every PR should:
 - Maintain strict TypeScript compatibility.
 - Preserve backward compatibility where possible; call out breaking changes clearly.
 - Add comments only where logic is non-obvious.
+- Keep import statements sorted (enforced by ESLint).
+- Keep formatting consistent (enforced by Prettier).
+
+## Local Git Hooks
+
+Husky hooks are enabled via the `prepare` script.
+
+- `pre-commit`: runs `pnpm lint` and `pnpm typecheck`
+- `commit-msg`: runs commitlint on the commit message
+
+If a hook fails, fix the underlying issue and retry the commit. Bypassing hooks (`--no-verify`) should be reserved for emergency cases only.
 
 ## Testing Expectations
 

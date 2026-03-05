@@ -67,11 +67,11 @@ interface EventEngine {
 
 ## Selection Matrix
 
-| Need | Primitive |
-|---|---|
-| Shared persisted app state | `state` |
-| Ephemeral user context | `awareness` |
-| Fire-and-forget signaling | `events` |
+| Need                       | Primitive   |
+| -------------------------- | ----------- |
+| Shared persisted app state | `state`     |
+| Ephemeral user context     | `awareness` |
+| Fire-and-forget signaling  | `events`    |
 
 ## Related Docs
 

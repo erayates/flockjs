@@ -12,7 +12,7 @@ body:
     attributes:
       label: Affected package
       description: Which package is affected?
-      placeholder: "@flockjs/core"
+      placeholder: '@flockjs/core'
     validations:
       required: true
 
@@ -20,7 +20,7 @@ body:
     id: version
     attributes:
       label: Package version or commit SHA
-      placeholder: "0.0.0-dev or commit SHA"
+      placeholder: '0.0.0-dev or commit SHA'
     validations:
       required: true
 
@@ -73,13 +73,13 @@ body:
     id: browser
     attributes:
       label: Browser and version
-      placeholder: "Chrome 124, Firefox 123, Safari 17"
+      placeholder: 'Chrome 124, Firefox 123, Safari 17'
 
   - type: input
     id: os
     attributes:
       label: OS
-      placeholder: "Windows 11, macOS 14, Ubuntu 22.04"
+      placeholder: 'Windows 11, macOS 14, Ubuntu 22.04'
 
   - type: checkboxes
     id: checks

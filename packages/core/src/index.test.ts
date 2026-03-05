@@ -6,7 +6,7 @@ describe('createCoreHealth', () => {
   it('returns the expected health object', () => {
     expect(createCoreHealth()).toEqual({
       packageName: '@flockjs/core',
-      status: 'ok'
+      status: 'ok',
     });
   });
 });

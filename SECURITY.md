@@ -4,9 +4,9 @@
 
 FlockJS is pre-`v1.0`. Security fixes are currently applied to the `main` branch.
 
-| Version | Supported |
-|---|---|
-| `main` | Yes |
+| Version          | Supported   |
+| ---------------- | ----------- |
+| `main`           | Yes         |
 | Pre-release tags | Best effort |
 
 ## Reporting a Vulnerability

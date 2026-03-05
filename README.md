@@ -25,19 +25,19 @@ Building collaboration features usually requires you to stitch together transpor
 
 ## Feature Overview
 
-| Area | Description | Status |
-|---|---|---|
+| Area                | Description                                   | Status  |
+| ------------------- | --------------------------------------------- | ------- |
 | Core room lifecycle | `createRoom`, connect/disconnect, peer events | Planned |
-| Presence engine | peer metadata, subscriptions, updates | Planned |
-| Cursor engine | pointer sync, rendering helpers | Planned |
-| Shared state engine | `lww`, `crdt`, `custom` merge strategies | Planned |
-| Awareness engine | transient focus/typing/selection state | Planned |
-| Event engine | ephemeral room and peer-targeted events | Planned |
-| React adapter | provider + hooks API | Planned |
-| Vue adapter | plugin + composables | Planned |
-| Svelte adapter | stores + actions | Planned |
-| Relay server | optional WebSocket relay for scale | Planned |
-| Prebuilt UI kit | cursors/presence/typing components | Planned |
+| Presence engine     | peer metadata, subscriptions, updates         | Planned |
+| Cursor engine       | pointer sync, rendering helpers               | Planned |
+| Shared state engine | `lww`, `crdt`, `custom` merge strategies      | Planned |
+| Awareness engine    | transient focus/typing/selection state        | Planned |
+| Event engine        | ephemeral room and peer-targeted events       | Planned |
+| React adapter       | provider + hooks API                          | Planned |
+| Vue adapter         | plugin + composables                          | Planned |
+| Svelte adapter      | stores + actions                              | Planned |
+| Relay server        | optional WebSocket relay for scale            | Planned |
+| Prebuilt UI kit     | cursors/presence/typing components            | Planned |
 
 ## Quick Start (Planned API)
 
@@ -67,15 +67,15 @@ window.addEventListener('beforeunload', () => {
 
 ## Package Matrix
 
-| Package | Purpose | Status |
-|---|---|---|
-| `@flockjs/core` | room, transports, collaboration engines | Planned |
-| `@flockjs/react` | React provider/hooks | Planned |
-| `@flockjs/vue` | Vue plugin/composables | Planned |
-| `@flockjs/svelte` | Svelte store/action integration | Planned |
-| `@flockjs/cursors` | prebuilt collaboration UI components | Planned |
-| `@flockjs/relay` | self-hosted relay server | Planned |
-| `@flockjs/devtools` | debugging and diagnostics tooling | Planned |
+| Package             | Purpose                                 | Status  |
+| ------------------- | --------------------------------------- | ------- |
+| `@flockjs/core`     | room, transports, collaboration engines | Planned |
+| `@flockjs/react`    | React provider/hooks                    | Planned |
+| `@flockjs/vue`      | Vue plugin/composables                  | Planned |
+| `@flockjs/svelte`   | Svelte store/action integration         | Planned |
+| `@flockjs/cursors`  | prebuilt collaboration UI components    | Planned |
+| `@flockjs/relay`    | self-hosted relay server                | Planned |
+| `@flockjs/devtools` | debugging and diagnostics tooling       | Planned |
 
 ## Documentation
 

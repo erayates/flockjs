@@ -7,7 +7,7 @@ body:
     attributes:
       label: Documentation location
       description: File path or URL
-      placeholder: "docs/reference/core-api.md"
+      placeholder: 'docs/reference/core-api.md'
     validations:
       required: true
 

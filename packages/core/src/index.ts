@@ -6,6 +6,6 @@ export interface CoreHealth {
 export function createCoreHealth(): CoreHealth {
   return {
     packageName: '@flockjs/core',
-    status: 'ok'
+    status: 'ok',
   };
 }
