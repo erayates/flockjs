@@ -14,15 +14,16 @@ body:
   - type: textarea
     id: issue
     attributes:
-      label: What is unclear, missing, or incorrect?
+      label: Problem statement
+      description: What is unclear, missing, or incorrect?
     validations:
       required: true
 
   - type: textarea
     id: proposal
     attributes:
-      label: Suggested improvement
-      description: Propose wording, examples, or structure updates.
+      label: Suggested wording or structural improvement
+      description: Propose concrete wording, examples, or structure updates.
 
   - type: checkboxes
     id: checks

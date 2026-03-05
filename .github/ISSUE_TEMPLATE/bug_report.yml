@@ -68,12 +68,17 @@ body:
       label: Logs, stack traces, screenshots
       description: Include relevant debug output.
       render: shell
+    validations:
+      required: true
 
   - type: input
     id: browser
     attributes:
       label: Browser and version
+      description: Required when runtime is Browser/Both. For Node.js-only issues, use N/A.
       placeholder: 'Chrome 124, Firefox 123, Safari 17'
+    validations:
+      required: true
 
   - type: input
     id: os

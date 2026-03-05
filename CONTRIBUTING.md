@@ -36,11 +36,11 @@ All contribution types are welcome:
 
 ### Prerequisites
 
-- Node.js `18+` (Node `20` also supported in CI)
+- Node.js `20` for local development (`18` and `20` are validated in CI)
 - `pnpm`
 - `git`
 
-### Setup Steps
+### Complete Development Setup Flow
 
 ```bash
 git clone https://github.com/erayates/flockjs.git
@@ -48,20 +48,28 @@ cd flockjs
 pnpm install
 ```
 
-When workspace scaffolding is fully in place, the expected root commands are:
+Run the baseline local quality gates before opening a PR:
 
 ```bash
-pnpm build
-pnpm test
-pnpm test:watch
 pnpm lint
 pnpm typecheck
+pnpm test
+pnpm build
+```
+
+Use these additional verification and maintenance commands when needed:
+
+```bash
 pnpm typecheck:root
 pnpm format:check
-pnpm format:write
 pnpm changeset
 pnpm release:status
 ```
+
+Husky hooks should run automatically after install (`prepare` script):
+
+- `pre-commit`: `pnpm lint` and `pnpm typecheck`
+- `commit-msg`: commitlint conventional commit validation
 
 ## Branching Strategy
 
@@ -98,9 +106,11 @@ Every PR should:
 
 1. Link to an issue or explain why no issue exists.
 2. Describe what changed and why.
-3. Include tests for behavior changes.
-4. Update docs when API/behavior changes.
-5. Pass CI checks.
+3. Include local validation evidence (`pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`).
+4. Include tests for behavior changes.
+5. Update docs when API/behavior changes.
+6. Explicitly call out breaking changes (or state none).
+7. Pass CI checks.
 
 CI validates each PR to `main` on Node `18` and `20` with this stage order:
 
@@ -122,11 +132,11 @@ CI validates each PR to `main` on Node `18` and `20` with this stage order:
 
 - Keep changes small and reviewable.
 - Prefer explicit types over `any`.
-- Maintain strict TypeScript compatibility.
+- Maintain strict TypeScript compatibility (`strict` mode; no weakening compiler options).
 - Preserve backward compatibility where possible; call out breaking changes clearly.
 - Add comments only where logic is non-obvious.
-- Keep import statements sorted (enforced by ESLint).
-- Keep formatting consistent (enforced by Prettier).
+- Keep import statements sorted (enforced by ESLint `simple-import-sort`).
+- Keep formatting consistent (enforced by Prettier; run `pnpm format:check`).
 
 ## Local Git Hooks
 

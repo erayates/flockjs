@@ -10,8 +10,8 @@ body:
   - type: textarea
     id: problem
     attributes:
-      label: Problem statement
-      description: What user/developer problem does this solve?
+      label: Motivation / problem statement
+      description: What user/developer motivation or problem does this solve?
     validations:
       required: true
 
@@ -26,9 +26,11 @@ body:
   - type: textarea
     id: api
     attributes:
-      label: API sketch (if applicable)
-      description: Provide a rough API design in TypeScript.
+      label: API proposal (TypeScript sketch)
+      description: Provide the proposed API shape in TypeScript.
       render: ts
+    validations:
+      required: true
 
   - type: textarea
     id: alternatives
