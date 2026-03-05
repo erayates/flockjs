@@ -26,6 +26,11 @@ const room = createRoom('my-first-room', {
 await room.connect();
 ```
 
+Transport support in the current baseline:
+
+- Available: `auto`, `broadcast`
+- Planned: `webrtc`, `websocket`
+
 ## 3) Track Peers with Presence
 
 ```ts

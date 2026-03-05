@@ -25,6 +25,8 @@ export interface Peer {
   [key: string]: unknown;
 }
 
+export type PeerWithPresence<TPresence extends Record<string, unknown>> = Peer & Partial<TPresence>;
+
 export interface FlockError extends Error {
   code: 'ROOM_FULL' | 'AUTH_FAILED' | 'NETWORK_ERROR' | 'ENCRYPTION_ERROR';
   recoverable: boolean;
@@ -32,6 +34,12 @@ export interface FlockError extends Error {
 
 export type Unsubscribe = () => void;
 ```
+
+EP-02 `#009` baseline note:
+
+- `RoomStatus`, `Peer`, and `FlockError` are now implemented in the core runtime.
+- Broadcast-based peer discovery is available via `transport: 'auto' | 'broadcast'`.
+- `webrtc` and `websocket` transport paths remain planned.
 
 ## Engine Option Types
 

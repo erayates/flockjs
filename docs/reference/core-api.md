@@ -5,7 +5,10 @@ Audience: users.
 ## Entry Point
 
 ```ts
-function createRoom(roomId: string, options?: RoomOptions): Room;
+function createRoom<TPresence extends Record<string, unknown> = Record<string, unknown>>(
+  roomId: string,
+  options?: RoomOptions<TPresence>,
+): Room<TPresence>;
 ```
 
 ## `RoomOptions`
@@ -25,27 +28,32 @@ interface RoomOptions {
 }
 ```
 
+Transport support in EP-02 `#009`:
+
+- Available baseline: `auto`, `broadcast`
+- Planned: `webrtc`, `websocket`
+
 ## `Room` Contract
 
 ```ts
-interface Room {
+interface Room<TPresence extends Record<string, unknown> = Record<string, unknown>> {
   id: string;
   peerId: string;
   status: RoomStatus;
-  peers: Peer[];
+  peers: Peer<TPresence>[];
   peerCount: number;
 
   connect(): Promise<void>;
   disconnect(): Promise<void>;
 
-  usePresence(): PresenceEngine;
+  usePresence(): PresenceEngine<TPresence>;
   useCursors(options?: CursorOptions): CursorEngine;
   useState<T>(options: StateOptions<T>): StateEngine<T>;
   useAwareness(): AwarenessEngine;
-  useEvents(options?: EventOptions): EventEngine;
+  useEvents(options?: EventOptions): EventEngine<TPresence>;
 
-  on<T extends RoomEventName>(event: T, cb: RoomEventHandler<T>): Unsubscribe;
-  off<T extends RoomEventName>(event: T, cb: RoomEventHandler<T>): void;
+  on<T extends RoomEventName>(event: T, cb: RoomEventHandler<TPresence, T>): Unsubscribe;
+  off<T extends RoomEventName>(event: T, cb: RoomEventHandler<TPresence, T>): void;
 }
 ```
 
