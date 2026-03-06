@@ -1,8 +1,22 @@
 import { createFlockError } from '../flock-error';
 import { env } from '../internal/env';
+import { logProtocolNegotiation, logProtocolWarning } from '../internal/logger';
+import type { PeerProtocolSession } from '../protocol/peer-message';
 import type { FlockError, PresenceData, RoomOptions } from '../types';
-import { toBroadcastSignal, type TransportAdapter, type TransportSignal } from './transport';
-import { parseTransportEnvelope, serializeTransportEnvelope } from './transport.protocol';
+import {
+  type RoomTransportSignal,
+  toBroadcastSignal,
+  type TransportAdapter,
+  type TransportSignal,
+} from './transport';
+import {
+  getBootstrapProtocolSession,
+  getTransportProtocolCapabilities,
+  isRoomTransportSignal,
+  negotiateTransportProtocolSession,
+  parseTransportEnvelope,
+  serializeTransportEnvelope,
+} from './transport.protocol';
 import { type SignalingServerMessage, type SignalingSignalMessage } from './webrtc.protocol';
 import { WebRTCSignalingClient, type WebRTCSignalingClientOptions } from './webrtc.signaling';
 
@@ -19,6 +33,7 @@ interface PeerConnectionContext {
   peerConnection: RTCPeerConnection;
   dataChannel: RTCDataChannel | null;
   pendingCandidates: RTCIceCandidateInit[];
+  session: PeerProtocolSession | null;
   closed: boolean;
   leaveEmitted: boolean;
 }
@@ -114,6 +129,8 @@ export class WebRTCTransportAdapter<
 
   private readonly peerPresencePayload: Record<string, unknown>;
 
+  private readonly localProtocolCapabilities = getTransportProtocolCapabilities('webrtc');
+
   private readonly PeerConnectionCtor: typeof RTCPeerConnection;
 
   public constructor(
@@ -202,6 +219,10 @@ export class WebRTCTransportAdapter<
       return;
     }
 
+    if (!isRoomTransportSignal(signal)) {
+      return;
+    }
+
     if (!signal.toPeerId) {
       this.broadcast(signal);
       return;
@@ -212,6 +233,10 @@ export class WebRTCTransportAdapter<
 
   public broadcast(signal: TransportSignal): void {
     if (!this.connected) {
+      return;
+    }
+
+    if (!isRoomTransportSignal(signal)) {
       return;
     }
 
@@ -246,6 +271,7 @@ export class WebRTCTransportAdapter<
       peerConnection,
       dataChannel: null,
       pendingCandidates: [],
+      session: null,
       closed: false,
       leaveEmitted: false,
     };
@@ -295,9 +321,16 @@ export class WebRTCTransportAdapter<
     };
 
     channel.onmessage = (event) => {
-      const signal = parseTransportEnvelope(event.data);
+      const signal = parseTransportEnvelope(event.data, {
+        transport: 'webrtc',
+        allowBinary: true,
+      });
       if (!signal) {
         return;
+      }
+
+      if (signal.type === 'hello' || signal.type === 'welcome') {
+        this.handleProtocolNegotiation(context, signal);
       }
 
       this.emitTransportSignal(signal);
@@ -482,32 +515,101 @@ export class WebRTCTransportAdapter<
       return;
     }
 
-    const serialized = serializeTransportEnvelope(signal);
+    if (!isRoomTransportSignal(signal)) {
+      return;
+    }
+
+    const serialized = serializeTransportEnvelope(signal, {
+      transport: 'webrtc',
+      session: this.getOutboundSession(context, signal),
+    });
     if (!serialized) {
       return;
     }
 
-    context.dataChannel.send(serialized);
+    if (typeof serialized === 'string') {
+      context.dataChannel.send(serialized);
+      return;
+    }
+
+    context.dataChannel.send(new Uint8Array(serialized).buffer);
   }
 
   private sendBootstrapHello(remotePeerId: string): void {
-    const peerPayload = {
-      id: this.peerId,
-      joinedAt: this.localJoinedAt,
-      lastSeen: Date.now(),
-      ...this.peerPresencePayload,
-    };
-
-    const helloSignal: TransportSignal = {
+    const helloSignal: RoomTransportSignal = {
       type: 'hello',
       roomId: this.roomId,
       fromPeerId: this.peerId,
+      timestamp: Date.now(),
       payload: {
-        peer: peerPayload,
+        peer: {
+          id: this.peerId,
+          joinedAt: this.localJoinedAt,
+          lastSeen: Date.now(),
+          ...this.peerPresencePayload,
+        },
+        protocol: this.localProtocolCapabilities,
       },
     };
 
     this.sendToPeer(remotePeerId, helloSignal);
+  }
+
+  private handleProtocolNegotiation(
+    context: PeerConnectionContext,
+    signal:
+      | Extract<RoomTransportSignal, { type: 'hello' }>
+      | Extract<RoomTransportSignal, { type: 'welcome' }>,
+  ): void {
+    const result = negotiateTransportProtocolSession('webrtc', signal.payload.protocol);
+    if (!result.compatible) {
+      logProtocolWarning({
+        transport: 'webrtc',
+        reason: result.reason,
+        payload: {
+          peerId: context.peerId,
+        },
+      });
+      this.emitErrorSignal(
+        createFlockError('NETWORK_ERROR', `Peer protocol mismatch for ${context.peerId}.`, false, {
+          source: 'peer-protocol',
+          kind: 'protocol-mismatch',
+          peerId: context.peerId,
+        }),
+      );
+      this.closePeerConnection(context.peerId, {
+        emitLeave: true,
+      });
+      return;
+    }
+
+    if (
+      context.session &&
+      context.session.version === result.session.version &&
+      context.session.codec === result.session.codec &&
+      context.session.legacy === result.session.legacy
+    ) {
+      return;
+    }
+
+    context.session = result.session;
+    logProtocolNegotiation(this.options.debug, {
+      transport: 'webrtc',
+      peerId: context.peerId,
+      reason: result.reason,
+      session: result.session,
+    });
+  }
+
+  private getOutboundSession(
+    context: PeerConnectionContext,
+    signal: RoomTransportSignal,
+  ): PeerProtocolSession {
+    if (signal.type === 'hello' || signal.type === 'welcome') {
+      return getBootstrapProtocolSession();
+    }
+
+    return context.session ?? getBootstrapProtocolSession();
   }
 
   private closePeerConnection(
@@ -550,6 +652,8 @@ export class WebRTCTransportAdapter<
         type: 'leave',
         roomId: this.roomId,
         fromPeerId: remotePeerId,
+        timestamp: Date.now(),
+        payload: {},
       });
     }
   }

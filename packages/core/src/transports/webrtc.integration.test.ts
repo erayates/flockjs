@@ -101,7 +101,7 @@ class MockRTCDataChannel {
     this.counterpart = counterpart;
   }
 
-  public send(payload: string): void {
+  public send(payload: unknown): void {
     if (this.readyState !== 'open') {
       return;
     }
@@ -345,11 +345,10 @@ describe('WebRTC transport integration (mock relay semantics)', () => {
       roomId: 'room-integration',
       fromPeerId: 'peer-a',
       toPeerId: 'peer-b',
+      timestamp: 1,
       payload: {
-        event: {
-          name: 'ping',
-          payload: true,
-        },
+        name: 'ping',
+        payload: true,
       },
     });
 

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createInMemoryTransportAdapter } from './in-memory';
 import type { TransportSignal } from './transport';
+import { getTransportProtocolCapabilities } from './transport.protocol';
 
 async function waitFor(condition: () => boolean, timeoutMs = 500): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -19,6 +20,7 @@ async function waitFor(condition: () => boolean, timeoutMs = 500): Promise<void>
 
 describe('InMemoryTransportAdapter', () => {
   it('routes targeted sends to a single peer and broadcasts to the room', async () => {
+    const protocol = getTransportProtocolCapabilities('in-memory');
     const adapterA = createInMemoryTransportAdapter('room-memory', 'peer-a');
     const adapterB = createInMemoryTransportAdapter('room-memory', 'peer-b');
     const adapterC = createInMemoryTransportAdapter('room-memory', 'peer-c');
@@ -37,8 +39,12 @@ describe('InMemoryTransportAdapter', () => {
       roomId: 'room-memory',
       fromPeerId: 'peer-a',
       toPeerId: 'peer-b',
+      timestamp: 1,
       payload: {
-        targeted: true,
+        name: 'targeted',
+        payload: {
+          targeted: true,
+        },
       },
     };
     adapterA.send(targetedSignal);
@@ -51,6 +57,15 @@ describe('InMemoryTransportAdapter', () => {
       type: 'hello',
       roomId: 'room-memory',
       fromPeerId: 'peer-a',
+      timestamp: 2,
+      payload: {
+        peer: {
+          id: 'peer-a',
+          joinedAt: 1,
+          lastSeen: 2,
+        },
+        protocol,
+      },
     };
     adapterA.broadcast(broadcastSignal);
 

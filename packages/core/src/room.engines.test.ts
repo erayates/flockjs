@@ -11,6 +11,7 @@ import {
 } from './transports/broadcast';
 import { createInMemoryTransportAdapter } from './transports/in-memory';
 import { selectTransportAdapter } from './transports/select-transport';
+import { getTransportProtocolCapabilities } from './transports/transport.protocol';
 
 const wait = (ms: number): Promise<void> => {
   return new Promise((resolve) => {
@@ -127,6 +128,8 @@ describe('Engine helpers and transport adapters', () => {
   });
 
   it('transport adapters send and receive baseline messages', async () => {
+    const inMemoryProtocol = getTransportProtocolCapabilities('in-memory');
+    const broadcastProtocol = getTransportProtocolCapabilities('broadcast');
     const inMemoryA = createInMemoryTransportAdapter('room-adapter', 'a');
     const inMemoryB = createInMemoryTransportAdapter('room-adapter', 'b');
 
@@ -140,7 +143,15 @@ describe('Engine helpers and transport adapters', () => {
       type: 'hello',
       roomId: 'room-adapter',
       fromPeerId: 'a',
-      payload: {},
+      timestamp: 1,
+      payload: {
+        peer: {
+          id: 'a',
+          joinedAt: 1,
+          lastSeen: 1,
+        },
+        protocol: inMemoryProtocol,
+      },
     });
 
     await waitFor(() => listener.mock.calls.length > 0);
@@ -159,6 +170,15 @@ describe('Engine helpers and transport adapters', () => {
         type: 'hello',
         roomId: 'room-broadcast-adapter',
         fromPeerId: 'a',
+        timestamp: 1,
+        payload: {
+          peer: {
+            id: 'a',
+            joinedAt: 1,
+            lastSeen: 1,
+          },
+          protocol: broadcastProtocol,
+        },
       });
       await waitFor(() => onMessage.mock.calls.length > 0);
       await broadcastA.disconnect();

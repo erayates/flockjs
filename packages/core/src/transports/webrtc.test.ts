@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getTransportProtocolCapabilities } from './transport.protocol';
 import type { SignalingSignalMessage } from './webrtc.protocol';
 import type { WebRTCSignalingClientOptions } from './webrtc.signaling';
 
@@ -54,7 +55,7 @@ vi.mock('./webrtc.signaling', () => ({
 }));
 
 class MockRTCDataChannel {
-  public readonly sent: string[] = [];
+  public readonly sent: unknown[] = [];
 
   public readyState: RTCDataChannelState = DATA_CHANNEL_OPEN;
 
@@ -71,7 +72,7 @@ class MockRTCDataChannel {
     public readonly options: RTCDataChannelInit,
   ) {}
 
-  public send(payload: string): void {
+  public send(payload: unknown): void {
     this.sent.push(payload);
   }
 
@@ -228,6 +229,8 @@ afterEach(() => {
 });
 
 describe('WebRTCTransportAdapter', () => {
+  const protocol = getTransportProtocolCapabilities('webrtc');
+
   it('throws when relayUrl or RTCPeerConnection is unavailable', async () => {
     const { createWebRTCTransportAdapter } = await import('./webrtc');
 
@@ -310,6 +313,9 @@ describe('WebRTCTransportAdapter', () => {
         type: 'hello',
         roomId: 'room-defaults',
         fromPeerId: 'peer-a',
+        payload: {
+          protocol,
+        },
       },
     });
 
@@ -406,9 +412,12 @@ describe('WebRTCTransportAdapter', () => {
       type: 'presence:update',
       roomId: 'room-send',
       fromPeerId: 'peer-b',
+      timestamp: 10,
       payload: {
         peer: {
           id: 'peer-b',
+          joinedAt: 1,
+          lastSeen: 10,
         },
       },
     };
@@ -429,11 +438,10 @@ describe('WebRTCTransportAdapter', () => {
       roomId: 'room-send',
       fromPeerId: 'peer-a',
       toPeerId: 'peer-b',
+      timestamp: 11,
       payload: {
-        event: {
-          name: 'targeted',
-          payload: true,
-        },
+        name: 'targeted',
+        payload: true,
       },
     } as const;
 
@@ -449,11 +457,10 @@ describe('WebRTCTransportAdapter', () => {
       type: 'event',
       roomId: 'room-send',
       fromPeerId: 'peer-a',
+      timestamp: 12,
       payload: {
-        event: {
-          name: 'broadcast',
-          payload: true,
-        },
+        name: 'broadcast',
+        payload: true,
       },
     });
 
@@ -578,6 +585,8 @@ describe('WebRTCTransportAdapter', () => {
       type: 'leave',
       roomId: 'room-failed-state',
       fromPeerId: 'peer-b',
+      timestamp: expect.any(Number),
+      payload: {},
     });
 
     await adapter.disconnect();

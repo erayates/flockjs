@@ -1,11 +1,24 @@
 import { createFlockError } from '../flock-error';
 import { env } from '../internal/env';
+import { logProtocolNegotiation, logProtocolWarning } from '../internal/logger';
+import type { PeerProtocolCapabilities, PeerProtocolSession } from '../protocol/peer-message';
 import type { FlockError, PresenceData, RelayAuthToken, RoomOptions } from '../types';
-import { toBroadcastSignal, type TransportAdapter, type TransportSignal } from './transport';
-import { isRoomTransportSignal } from './transport.protocol';
+import {
+  type RoomTransportSignal,
+  toBroadcastSignal,
+  type TransportAdapter,
+  type TransportSignal,
+} from './transport';
+import {
+  getBootstrapProtocolSession,
+  getTransportProtocolCapabilities,
+  isRoomTransportSignal,
+  negotiateTransportProtocolSession,
+} from './transport.protocol';
 import {
   parseWebSocketRelayServerMessage,
   serializeWebSocketRelayMessage,
+  type WebSocketRelayPeerDescriptor,
   type WebSocketRelayServerMessage,
 } from './websocket.protocol';
 
@@ -33,7 +46,7 @@ interface EventTargetLike {
 
 export interface WebSocketLike extends EventTargetLike {
   readonly readyState: number;
-  send(payload: string): void;
+  send(payload: string | Uint8Array): void;
   close(code?: number, reason?: string): void;
 }
 
@@ -107,6 +120,12 @@ export class WebSocketTransportAdapter<
 
   private readonly createWebSocket: WebSocketFactory;
 
+  private readonly localProtocolCapabilities = getTransportProtocolCapabilities('websocket');
+
+  private readonly peerSessions = new Map<string, PeerProtocolSession>();
+
+  private readonly peerCapabilities = new Map<string, PeerProtocolCapabilities | undefined>();
+
   private socket: WebSocketLike | null = null;
 
   private connected = false;
@@ -176,6 +195,8 @@ export class WebSocketTransportAdapter<
     const socket = this.socket;
     this.connected = false;
     this.socket = null;
+    this.peerSessions.clear();
+    this.peerCapabilities.clear();
 
     if (!socket) {
       this.listeners.clear();
@@ -201,6 +222,10 @@ export class WebSocketTransportAdapter<
   }
 
   public send(signal: TransportSignal): void {
+    if (!isRoomTransportSignal(signal)) {
+      return;
+    }
+
     if (!signal.toPeerId) {
       this.broadcast(signal);
       return;
@@ -210,6 +235,10 @@ export class WebSocketTransportAdapter<
   }
 
   public broadcast(signal: TransportSignal): void {
+    if (!isRoomTransportSignal(signal)) {
+      return;
+    }
+
     this.sendSignal(toBroadcastSignal(signal));
   }
 
@@ -278,6 +307,7 @@ export class WebSocketTransportAdapter<
           type: 'join',
           roomId: this.roomId,
           peerId: this.peerId,
+          protocol: this.localProtocolCapabilities,
         } as const;
 
         socket.send(
@@ -299,6 +329,7 @@ export class WebSocketTransportAdapter<
         }
 
         if (message.type === 'joined') {
+          this.initializePeerNegotiationState(message.peers);
           succeed();
           return;
         }
@@ -331,15 +362,40 @@ export class WebSocketTransportAdapter<
 
   private handleServerMessage(message: WebSocketRelayServerMessage): void {
     if (message.type === 'transport') {
+      if (message.signal.type === 'hello' || message.signal.type === 'welcome') {
+        const compatible = this.updatePeerNegotiationState(
+          message.signal.fromPeerId,
+          message.signal.payload.protocol,
+        );
+        if (!compatible) {
+          return;
+        }
+      } else if (
+        message.signal.fromPeerId !== this.peerId &&
+        this.peerCapabilities.has(message.signal.fromPeerId) &&
+        !this.peerSessions.has(message.signal.fromPeerId)
+      ) {
+        return;
+      }
+
       this.emitTransportSignal(message.signal);
       return;
     }
 
+    if (message.type === 'peer-joined') {
+      this.updatePeerNegotiationState(message.peerId, message.protocol);
+      return;
+    }
+
     if (message.type === 'peer-left') {
+      this.peerSessions.delete(message.peerId);
+      this.peerCapabilities.delete(message.peerId);
       this.emitTransportSignal({
         type: 'leave',
         roomId: message.roomId,
         fromPeerId: message.peerId,
+        timestamp: Date.now(),
+        payload: {},
       });
       return;
     }
@@ -363,8 +419,69 @@ export class WebSocketTransportAdapter<
       serializeWebSocketRelayMessage({
         type: 'transport',
         signal,
+        session: this.resolveOutboundSession(signal),
       }),
     );
+  }
+
+  private initializePeerNegotiationState(peers: WebSocketRelayPeerDescriptor[]): void {
+    this.peerSessions.clear();
+    this.peerCapabilities.clear();
+
+    for (const peer of peers) {
+      this.updatePeerNegotiationState(peer.peerId, peer.protocol);
+    }
+  }
+
+  private updatePeerNegotiationState(
+    peerId: string,
+    remoteProtocol: PeerProtocolCapabilities | undefined,
+  ): boolean {
+    this.peerCapabilities.set(peerId, remoteProtocol);
+
+    const result = negotiateTransportProtocolSession('websocket', remoteProtocol);
+    if (!result.compatible) {
+      this.peerSessions.delete(peerId);
+      logProtocolWarning({
+        transport: 'websocket',
+        reason: result.reason,
+        payload: {
+          peerId,
+        },
+      });
+      return false;
+    }
+
+    const existing = this.peerSessions.get(peerId);
+    if (
+      existing &&
+      existing.version === result.session.version &&
+      existing.codec === result.session.codec &&
+      existing.legacy === result.session.legacy
+    ) {
+      return true;
+    }
+
+    this.peerSessions.set(peerId, result.session);
+    logProtocolNegotiation(this.options.debug, {
+      transport: 'websocket',
+      peerId,
+      reason: result.reason,
+      session: result.session,
+    });
+    return true;
+  }
+
+  private resolveOutboundSession(signal: RoomTransportSignal): PeerProtocolSession {
+    if (signal.type === 'hello' || signal.type === 'welcome') {
+      return getBootstrapProtocolSession();
+    }
+
+    return {
+      version: 2,
+      codec: 'msgpack',
+      legacy: false,
+    };
   }
 
   private emitTransportSignal(signal: TransportSignal): void {

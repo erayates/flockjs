@@ -1,6 +1,10 @@
 import { env } from '../internal/env';
 import { toBroadcastSignal, type TransportAdapter, type TransportSignal } from './transport';
-import { parseTransportEnvelope, serializeTransportEnvelope } from './transport.protocol';
+import {
+  isRoomTransportSignal,
+  parseTransportEnvelope,
+  serializeTransportEnvelope,
+} from './transport.protocol';
 
 export function isBroadcastChannelAvailable(): boolean {
   return env.hasBroadcastChannel;
@@ -16,7 +20,10 @@ export class BroadcastTransportAdapter implements TransportAdapter {
   private connected = false;
 
   private readonly handleChannelMessage = (event: MessageEvent<unknown>): void => {
-    const signal = parseTransportEnvelope(event.data);
+    const signal = parseTransportEnvelope(event.data, {
+      transport: 'broadcast',
+      allowBinary: false,
+    });
     if (!signal) {
       return;
     }
@@ -60,7 +67,13 @@ export class BroadcastTransportAdapter implements TransportAdapter {
       return;
     }
 
-    const serialized = serializeTransportEnvelope(signal);
+    if (!isRoomTransportSignal(signal)) {
+      return;
+    }
+
+    const serialized = serializeTransportEnvelope(signal, {
+      transport: 'broadcast',
+    });
     if (!serialized) {
       return;
     }
@@ -69,6 +82,10 @@ export class BroadcastTransportAdapter implements TransportAdapter {
   }
 
   public broadcast(signal: TransportSignal): void {
+    if (!isRoomTransportSignal(signal)) {
+      return;
+    }
+
     this.send(toBroadcastSignal(signal));
   }
 

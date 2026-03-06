@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  getBootstrapProtocolSession,
+  getTransportProtocolCapabilities,
+} from './transport.protocol';
 import { createWebSocketTransportAdapter, type WebSocketLike } from './websocket';
 import {
   parseWebSocketRelayClientMessage,
+  serializeWebSocketRelayMessage,
   type WebSocketRelayClientMessage,
 } from './websocket.protocol';
 
@@ -25,7 +30,7 @@ const READY_STATE_OPEN = 1;
 const READY_STATE_CLOSED = 3;
 
 class MockWebSocket implements WebSocketLike {
-  public readonly sentPayloads: string[] = [];
+  public readonly sentPayloads: Array<string | Uint8Array> = [];
 
   public readonly closeCalls: Array<{ code?: number; reason?: string }> = [];
 
@@ -59,7 +64,7 @@ class MockWebSocket implements WebSocketLike {
     }
   }
 
-  public send(payload: string): void {
+  public send(payload: string | Uint8Array): void {
     this.sentPayloads.push(payload);
     this.relay.handleClientPayload(this, payload);
   }
@@ -120,7 +125,14 @@ class MockWebSocket implements WebSocketLike {
 class MockRelay {
   private readonly sockets = new Set<MockWebSocket>();
 
-  private readonly contexts = new Map<MockWebSocket, { roomId: string; peerId: string }>();
+  private readonly contexts = new Map<
+    MockWebSocket,
+    {
+      roomId: string;
+      peerId: string;
+      protocol?: ReturnType<typeof getTransportProtocolCapabilities>;
+    }
+  >();
 
   private readonly rooms = new Map<string, Map<string, MockWebSocket>>();
 
@@ -151,7 +163,7 @@ class MockRelay {
     return null;
   }
 
-  public handleClientPayload(socket: MockWebSocket, payload: string): void {
+  public handleClientPayload(socket: MockWebSocket, payload: string | Uint8Array): void {
     const message = parseWebSocketRelayClientMessage(payload);
     if (!message) {
       socket.emitMessage(
@@ -198,12 +210,19 @@ class MockRelay {
     }
 
     const roomPeers = this.rooms.get(message.roomId) ?? new Map<string, MockWebSocket>();
-    const peers = Array.from(roomPeers.keys());
+    const peers = Array.from(roomPeers.entries()).map(([peerId, peerSocket]) => {
+      const peerContext = this.contexts.get(peerSocket);
+      return {
+        peerId,
+        ...(peerContext?.protocol ? { protocol: peerContext.protocol } : {}),
+      };
+    });
     roomPeers.set(message.peerId, socket);
     this.rooms.set(message.roomId, roomPeers);
     this.contexts.set(socket, {
       roomId: message.roomId,
       peerId: message.peerId,
+      ...(message.protocol ? { protocol: message.protocol } : {}),
     });
 
     if (!this.options.suppressJoinAck) {
@@ -221,6 +240,7 @@ class MockRelay {
       type: 'peer-joined',
       roomId: message.roomId,
       peerId: message.peerId,
+      ...(message.protocol ? { protocol: message.protocol } : {}),
     });
     for (const [peerId, peerSocket] of roomPeers.entries()) {
       if (peerId === message.peerId) {
@@ -245,13 +265,26 @@ class MockRelay {
       return;
     }
 
-    const payload = JSON.stringify({
-      type: 'transport',
-      signal: message.signal,
-    });
-
     if (message.signal.toPeerId) {
-      roomPeers.get(message.signal.toPeerId)?.emitMessage(payload);
+      const target = roomPeers.get(message.signal.toPeerId);
+      if (!target) {
+        return;
+      }
+
+      const targetContext = this.contexts.get(target);
+      target.emitMessage(
+        serializeWebSocketRelayMessage({
+          type: 'transport',
+          signal: message.signal,
+          session: targetContext?.protocol?.codecs.includes('msgpack')
+            ? {
+                version: 2,
+                codec: 'msgpack',
+                legacy: false,
+              }
+            : getBootstrapProtocolSession(),
+        }),
+      );
       return;
     }
 
@@ -260,7 +293,20 @@ class MockRelay {
         continue;
       }
 
-      peerSocket.emitMessage(payload);
+      const peerContext = this.contexts.get(peerSocket);
+      peerSocket.emitMessage(
+        serializeWebSocketRelayMessage({
+          type: 'transport',
+          signal: message.signal,
+          session: peerContext?.protocol?.codecs.includes('msgpack')
+            ? {
+                version: 2,
+                codec: 'msgpack',
+                legacy: false,
+              }
+            : getBootstrapProtocolSession(),
+        }),
+      );
     }
   }
 
@@ -309,6 +355,8 @@ async function waitFor(condition: () => boolean, timeoutMs = 500): Promise<void>
 }
 
 describe('WebSocketTransportAdapter', () => {
+  const protocol = getTransportProtocolCapabilities('websocket');
+
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -346,6 +394,15 @@ describe('WebSocketTransportAdapter', () => {
       type: 'hello',
       roomId: 'room-websocket',
       fromPeerId: 'peer-b',
+      timestamp: 1,
+      payload: {
+        peer: {
+          id: 'peer-b',
+          joinedAt: 1,
+          lastSeen: 1,
+        },
+        protocol,
+      },
     });
 
     await waitFor(() => receivedByA.includes('hello:peer-b'));
@@ -385,8 +442,12 @@ describe('WebSocketTransportAdapter', () => {
       type: 'event',
       roomId: 'room-broadcast',
       fromPeerId: 'peer-a',
+      timestamp: 1,
       payload: {
-        scope: 'all',
+        name: 'broadcast',
+        payload: {
+          scope: 'all',
+        },
       },
     });
 
@@ -395,8 +456,12 @@ describe('WebSocketTransportAdapter', () => {
       type: 'event',
       roomId: 'room-broadcast',
       fromPeerId: 'peer-a',
+      timestamp: expect.any(Number),
       payload: {
-        scope: 'all',
+        name: 'broadcast',
+        payload: {
+          scope: 'all',
+        },
       },
     });
 
@@ -446,8 +511,12 @@ describe('WebSocketTransportAdapter', () => {
       roomId: 'room-targeted',
       fromPeerId: 'peer-a',
       toPeerId: 'peer-b',
+      timestamp: 1,
       payload: {
-        scope: 'one',
+        name: 'targeted',
+        payload: {
+          scope: 'one',
+        },
       },
     });
 
@@ -457,8 +526,12 @@ describe('WebSocketTransportAdapter', () => {
       roomId: 'room-targeted',
       fromPeerId: 'peer-a',
       toPeerId: 'peer-b',
+      timestamp: expect.any(Number),
       payload: {
-        scope: 'one',
+        name: 'targeted',
+        payload: {
+          scope: 'one',
+        },
       },
     });
     expect(onMessageC).not.toHaveBeenCalled();
@@ -501,6 +574,8 @@ describe('WebSocketTransportAdapter', () => {
       type: 'leave',
       roomId: 'room-leave',
       fromPeerId: 'peer-b',
+      timestamp: expect.any(Number),
+      payload: {},
     });
 
     await adapterA.disconnect();

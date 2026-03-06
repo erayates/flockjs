@@ -1,4 +1,5 @@
 import { toBroadcastSignal, type TransportAdapter, type TransportSignal } from './transport';
+import { isRoomTransportSignal, normalizeTransportSignal } from './transport.protocol';
 
 interface InMemoryChannel {
   subscribers: Map<string, (signal: TransportSignal) => void>;
@@ -69,13 +70,22 @@ export class InMemoryTransportAdapter implements TransportAdapter {
       return;
     }
 
-    if (!signal.toPeerId) {
-      this.broadcast(signal);
+    if (!isRoomTransportSignal(signal)) {
       return;
     }
 
-    const subscriber = this.channel.subscribers.get(signal.toPeerId);
-    subscriber?.(signal);
+    const normalizedSignal = normalizeTransportSignal(signal);
+    if (!normalizedSignal) {
+      return;
+    }
+
+    if (!normalizedSignal.toPeerId) {
+      this.broadcast(normalizedSignal);
+      return;
+    }
+
+    const subscriber = this.channel.subscribers.get(normalizedSignal.toPeerId);
+    subscriber?.(normalizedSignal);
   }
 
   public broadcast(signal: TransportSignal): void {
@@ -83,7 +93,16 @@ export class InMemoryTransportAdapter implements TransportAdapter {
       return;
     }
 
-    const outboundSignal = toBroadcastSignal(signal);
+    if (!isRoomTransportSignal(signal)) {
+      return;
+    }
+
+    const normalizedSignal = normalizeTransportSignal(signal);
+    if (!normalizedSignal) {
+      return;
+    }
+
+    const outboundSignal = toBroadcastSignal(normalizedSignal);
     for (const subscriber of this.channel.subscribers.values()) {
       subscriber(outboundSignal);
     }

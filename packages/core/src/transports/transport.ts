@@ -1,25 +1,38 @@
-import type { Unsubscribe } from '../types';
+import type {
+  PeerProtocolCapabilities,
+  PeerProtocolSession,
+  PeerWireMessage,
+  PeerWireMessageType,
+} from '../protocol/peer-message';
+import type { FlockError, Unsubscribe } from '../types';
 
 export type TransportKind = 'broadcast' | 'in-memory' | 'webrtc' | 'websocket';
 
-export type TransportSignalType =
-  | 'hello'
-  | 'welcome'
-  | 'presence:update'
-  | 'leave'
-  | 'cursor:update'
-  | 'awareness:update'
-  | 'event'
-  | 'transport:error'
-  | 'transport:disconnected';
+export type RoomTransportSignalType = PeerWireMessageType;
+export type RoomTransportSignal = PeerWireMessage;
 
-export interface TransportSignal {
-  type: TransportSignalType;
+export interface TransportErrorSignal {
+  type: 'transport:error';
   roomId: string;
   fromPeerId: string;
-  toPeerId?: string;
-  payload?: unknown;
+  payload: {
+    error: FlockError;
+  };
 }
+
+export interface TransportDisconnectedSignal {
+  type: 'transport:disconnected';
+  roomId: string;
+  fromPeerId: string;
+  payload: {
+    reason?: string;
+  };
+}
+
+export type TransportSignal =
+  | RoomTransportSignal
+  | TransportErrorSignal
+  | TransportDisconnectedSignal;
 
 export interface ITransport {
   readonly kind: TransportKind;
@@ -32,7 +45,12 @@ export interface ITransport {
 
 export type TransportAdapter = ITransport;
 
-export function toBroadcastSignal(signal: TransportSignal): TransportSignal {
+export type TransportProtocolSupport = {
+  capabilities: PeerProtocolCapabilities;
+  bootstrapSession: PeerProtocolSession;
+};
+
+export function toBroadcastSignal(signal: RoomTransportSignal): RoomTransportSignal {
   if (signal.toPeerId === undefined) {
     return signal;
   }

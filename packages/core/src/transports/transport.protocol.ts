@@ -1,8 +1,19 @@
-import { isObject } from '../internal/guards';
-import type { TransportSignal } from './transport';
+import { logProtocolWarning } from '../internal/logger';
+import {
+  createProtocolCapabilities,
+  LEGACY_PROTOCOL_SESSION,
+  negotiatePeerProtocolSession,
+  normalizePeerWireMessage,
+  parsePeerWireEnvelope,
+  type PeerProtocolCapabilities,
+  type PeerProtocolNegotiationResult,
+  type PeerProtocolSession,
+  type PeerWireMessageType,
+  serializePeerWireEnvelope,
+  serializePeerWireEnvelopeObject,
+} from '../protocol/peer-message';
+import type { RoomTransportSignal, TransportKind } from './transport';
 
-const TRANSPORT_SOURCE = 'flockjs';
-const TRANSPORT_VERSION = 1;
 const ROOM_TRANSPORT_SIGNAL_TYPES = new Set<string>([
   'hello',
   'welcome',
@@ -13,84 +24,116 @@ const ROOM_TRANSPORT_SIGNAL_TYPES = new Set<string>([
   'event',
 ]);
 
-interface TransportEnvelope {
-  source: typeof TRANSPORT_SOURCE;
-  version: typeof TRANSPORT_VERSION;
-  signal: RoomTransportSignal;
+const JSON_ONLY_CAPABILITIES = createProtocolCapabilities(['json'], 'json');
+const JSON_AND_MSGPACK_CAPABILITIES = createProtocolCapabilities(['json', 'msgpack'], 'msgpack');
+
+interface ParseOptions {
+  transport: TransportKind | 'unknown';
+  allowBinary?: boolean;
+  now?: () => number;
 }
 
-export type RoomTransportSignalType = Exclude<
-  TransportSignal['type'],
-  'transport:error' | 'transport:disconnected'
->;
+function logRejectedMessage(
+  transport: ParseOptions['transport'],
+  reason: string,
+  payload?: unknown,
+): null {
+  logProtocolWarning({
+    transport,
+    reason,
+    ...(payload !== undefined ? { payload } : {}),
+  });
+  return null;
+}
 
-export type RoomTransportSignal = TransportSignal & {
-  type: RoomTransportSignalType;
-};
+export type RoomTransportSignalType = PeerWireMessageType;
+
+export function getTransportProtocolCapabilities(kind: TransportKind): PeerProtocolCapabilities {
+  if (kind === 'broadcast' || kind === 'in-memory') {
+    return JSON_ONLY_CAPABILITIES;
+  }
+
+  return JSON_AND_MSGPACK_CAPABILITIES;
+}
+
+export function getBootstrapProtocolSession(): PeerProtocolSession {
+  return LEGACY_PROTOCOL_SESSION;
+}
+
+export function negotiateTransportProtocolSession(
+  kind: TransportKind,
+  remote: PeerProtocolCapabilities | undefined,
+): PeerProtocolNegotiationResult {
+  return negotiatePeerProtocolSession(getTransportProtocolCapabilities(kind), remote, {
+    supportsBinary: kind === 'webrtc' || kind === 'websocket',
+  });
+}
 
 export function isRoomTransportSignalType(value: unknown): value is RoomTransportSignalType {
   return typeof value === 'string' && ROOM_TRANSPORT_SIGNAL_TYPES.has(value);
 }
 
 export function isRoomTransportSignal(value: unknown): value is RoomTransportSignal {
-  if (!isObject(value)) {
-    return false;
+  return normalizePeerWireMessage(value) !== null;
+}
+
+export function normalizeTransportSignal(
+  signal: unknown,
+  now: () => number = Date.now,
+): RoomTransportSignal | null {
+  return normalizePeerWireMessage(signal, now);
+}
+
+export function serializeTransportEnvelopeObject(
+  signal: RoomTransportSignal,
+  session: PeerProtocolSession = LEGACY_PROTOCOL_SESSION,
+): object {
+  return serializePeerWireEnvelopeObject(signal, session);
+}
+
+export function serializeTransportEnvelope(
+  signal: RoomTransportSignal,
+  options: {
+    session?: PeerProtocolSession;
+    transport: TransportKind | 'unknown';
+  },
+): string | Uint8Array | null {
+  const serialized = serializePeerWireEnvelope(signal, options.session ?? LEGACY_PROTOCOL_SESSION);
+  if (serialized !== null) {
+    return serialized;
   }
 
-  const type = value.type;
-  const roomId = value.roomId;
-  const fromPeerId = value.fromPeerId;
-  const toPeerId = value.toPeerId;
+  return logRejectedMessage(options.transport, 'Outbound message serialization failed.', signal);
+}
 
-  return (
-    isRoomTransportSignalType(type) &&
-    typeof roomId === 'string' &&
-    typeof fromPeerId === 'string' &&
-    (toPeerId === undefined || typeof toPeerId === 'string')
+export function parseTransportEnvelope(
+  payload: unknown,
+  options: ParseOptions,
+): RoomTransportSignal | null {
+  if (payload instanceof Uint8Array || payload instanceof ArrayBuffer) {
+    if (options.allowBinary === false) {
+      return logRejectedMessage(
+        options.transport,
+        'Binary peer messages are not supported on this transport.',
+      );
+    }
+  }
+
+  const signal = parsePeerWireEnvelope(
+    payload,
+    options.now
+      ? {
+          now: options.now,
+        }
+      : undefined,
   );
-}
-
-export function serializeTransportEnvelope(signal: TransportSignal): string | null {
-  if (!isRoomTransportSignal(signal)) {
-    return null;
+  if (signal) {
+    return signal;
   }
 
-  const envelope: TransportEnvelope = {
-    source: TRANSPORT_SOURCE,
-    version: TRANSPORT_VERSION,
-    signal,
-  };
-
-  return JSON.stringify(envelope);
-}
-
-export function parseTransportEnvelope(payload: unknown): RoomTransportSignal | null {
-  if (typeof payload !== 'string') {
-    return null;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(payload);
-  } catch {
-    return null;
-  }
-
-  if (!isObject(parsed)) {
-    return null;
-  }
-
-  if (parsed.source !== TRANSPORT_SOURCE || parsed.version !== TRANSPORT_VERSION) {
-    return null;
-  }
-
-  return parseTransportSignal(parsed.signal);
+  return logRejectedMessage(options.transport, 'Malformed peer transport message.', payload);
 }
 
 export function parseTransportSignal(payload: unknown): RoomTransportSignal | null {
-  if (!isRoomTransportSignal(payload)) {
-    return null;
-  }
-
-  return payload;
+  return normalizePeerWireMessage(payload);
 }

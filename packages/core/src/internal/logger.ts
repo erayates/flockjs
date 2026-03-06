@@ -3,6 +3,7 @@ import type { DebugOptions } from '../types';
 
 interface ConsoleLike {
   debug(message?: unknown, ...optionalParams: unknown[]): void;
+  warn(message?: unknown, ...optionalParams: unknown[]): void;
 }
 
 function isDebugChannelEnabled(
@@ -22,7 +23,7 @@ function isDebugChannelEnabled(
 
 function getConsoleLike(): ConsoleLike | null {
   const consoleLike: ConsoleLike = globalThis.console;
-  if (typeof consoleLike.debug !== 'function') {
+  if (typeof consoleLike.debug !== 'function' || typeof consoleLike.warn !== 'function') {
     return null;
   }
 
@@ -47,4 +48,42 @@ export function logTransportSelection(
   }
 
   consoleLike.debug('[flockjs][transport] selection', selection);
+}
+
+export function logProtocolWarning(details: {
+  transport: string;
+  reason: string;
+  payload?: unknown;
+}): void {
+  const consoleLike = getConsoleLike();
+  if (!consoleLike) {
+    return;
+  }
+
+  consoleLike.warn('[flockjs][protocol] rejected message', details);
+}
+
+export function logProtocolNegotiation(
+  debug: boolean | DebugOptions | undefined,
+  details: {
+    transport: TransportKind;
+    peerId: string;
+    reason: string;
+    session?: {
+      version: number;
+      codec: string;
+      legacy: boolean;
+    };
+  },
+): void {
+  if (!isDebugChannelEnabled(debug, 'transport')) {
+    return;
+  }
+
+  const consoleLike = getConsoleLike();
+  if (!consoleLike) {
+    return;
+  }
+
+  consoleLike.debug('[flockjs][transport] protocol', details);
 }

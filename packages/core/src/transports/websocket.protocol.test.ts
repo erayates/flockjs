@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
+import type { RoomTransportSignal } from './transport';
+import {
+  getBootstrapProtocolSession,
+  getTransportProtocolCapabilities,
+} from './transport.protocol';
 import {
   parseWebSocketRelayClientMessage,
   parseWebSocketRelayServerMessage,
@@ -7,6 +12,8 @@ import {
 } from './websocket.protocol';
 
 describe('websocket.protocol', () => {
+  const protocol = getTransportProtocolCapabilities('websocket');
+
   it('serializes websocket relay client messages', () => {
     expect(
       serializeWebSocketRelayMessage({
@@ -14,67 +21,83 @@ describe('websocket.protocol', () => {
         roomId: 'room-a',
         peerId: 'peer-a',
         token: 'token-1',
+        protocol,
       }),
-    ).toBe('{"type":"join","roomId":"room-a","peerId":"peer-a","token":"token-1"}');
+    ).toBe(
+      JSON.stringify({
+        type: 'join',
+        roomId: 'room-a',
+        peerId: 'peer-a',
+        token: 'token-1',
+        protocol,
+      }),
+    );
   });
 
   it('parses joined, peer lifecycle, transport, and error server messages', () => {
+    const welcomeSignal: RoomTransportSignal = {
+      type: 'welcome',
+      roomId: 'room-a',
+      fromPeerId: 'peer-b',
+      toPeerId: 'peer-a',
+      timestamp: 5,
+      payload: {
+        peer: {
+          id: 'peer-b',
+          joinedAt: 1,
+          lastSeen: 5,
+        },
+        protocol,
+      },
+    };
+
     expect(
       parseWebSocketRelayServerMessage(
         JSON.stringify({
           type: 'joined',
           roomId: 'room-a',
           peerId: 'peer-a',
-          peers: ['peer-a', 'peer-b', 123],
+          peers: [{ peerId: 'peer-a', protocol }, { peerId: 'peer-b' }],
         }),
       ),
     ).toEqual({
       type: 'joined',
       roomId: 'room-a',
       peerId: 'peer-a',
-      peers: ['peer-a', 'peer-b'],
+      peers: [{ peerId: 'peer-a', protocol }, { peerId: 'peer-b' }],
     });
 
     expect(
       parseWebSocketRelayServerMessage(
         JSON.stringify({
-          type: 'peer-left',
+          type: 'peer-joined',
           roomId: 'room-a',
           peerId: 'peer-b',
+          protocol,
         }),
       ),
     ).toEqual({
-      type: 'peer-left',
+      type: 'peer-joined',
       roomId: 'room-a',
       peerId: 'peer-b',
+      protocol,
     });
 
     expect(
       parseWebSocketRelayServerMessage(
-        JSON.stringify({
+        serializeWebSocketRelayMessage({
           type: 'transport',
-          signal: {
-            type: 'event',
-            roomId: 'room-a',
-            fromPeerId: 'peer-b',
-            toPeerId: 'peer-a',
-            payload: {
-              ok: true,
-            },
-          },
+          signal: welcomeSignal,
+          session: getBootstrapProtocolSession(),
         }),
       ),
     ).toEqual({
       type: 'transport',
       signal: {
-        type: 'event',
-        roomId: 'room-a',
-        fromPeerId: 'peer-b',
-        toPeerId: 'peer-a',
-        payload: {
-          ok: true,
-        },
+        ...welcomeSignal,
+        timestamp: expect.any(Number),
       },
+      encoding: 'json',
     });
 
     expect(
@@ -99,12 +122,14 @@ describe('websocket.protocol', () => {
           type: 'join',
           roomId: 'room-a',
           peerId: 'peer-a',
+          protocol,
         }),
       ),
     ).toEqual({
       type: 'join',
       roomId: 'room-a',
       peerId: 'peer-a',
+      protocol,
     });
 
     expect(
@@ -121,24 +146,36 @@ describe('websocket.protocol', () => {
       peerId: 'peer-a',
     });
 
+    const helloSignal: RoomTransportSignal = {
+      type: 'hello',
+      roomId: 'room-a',
+      fromPeerId: 'peer-a',
+      timestamp: 1,
+      payload: {
+        peer: {
+          id: 'peer-a',
+          joinedAt: 1,
+          lastSeen: 1,
+        },
+        protocol,
+      },
+    };
+
     expect(
       parseWebSocketRelayClientMessage(
-        JSON.stringify({
+        serializeWebSocketRelayMessage({
           type: 'transport',
-          signal: {
-            type: 'hello',
-            roomId: 'room-a',
-            fromPeerId: 'peer-a',
-          },
+          signal: helloSignal,
+          session: getBootstrapProtocolSession(),
         }),
       ),
     ).toEqual({
       type: 'transport',
       signal: {
-        type: 'hello',
-        roomId: 'room-a',
-        fromPeerId: 'peer-a',
+        ...helloSignal,
+        timestamp: expect.any(Number),
       },
+      encoding: 'json',
     });
   });
 
@@ -150,10 +187,15 @@ describe('websocket.protocol', () => {
       parseWebSocketRelayServerMessage(
         JSON.stringify({
           type: 'transport',
-          signal: {
-            type: 'transport:error',
+          message: {
+            source: 'flockjs',
+            protocolVersion: 2,
+            codec: 'json',
             roomId: 'room-a',
             fromPeerId: 'peer-a',
+            timestamp: 1,
+            type: 'event',
+            payload: {},
           },
         }),
       ),
@@ -163,9 +205,13 @@ describe('websocket.protocol', () => {
       parseWebSocketRelayClientMessage(
         JSON.stringify({
           type: 'transport',
-          signal: {
-            roomId: 'room-a',
-            fromPeerId: 'peer-a',
+          message: {
+            source: 'flockjs',
+            version: 1,
+            signal: {
+              roomId: 'room-a',
+              fromPeerId: 'peer-a',
+            },
           },
         }),
       ),

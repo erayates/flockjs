@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createBroadcastTransportAdapter } from './broadcast';
 import type { TransportSignal } from './transport';
+import { getTransportProtocolCapabilities } from './transport.protocol';
 
 type MessageHandler = (event: MessageEvent<unknown>) => void;
 
@@ -105,6 +106,7 @@ class MockBroadcastChannel {
 
 describe('BroadcastTransportAdapter', () => {
   const originalBroadcastChannel = globalThis.BroadcastChannel;
+  const protocol = getTransportProtocolCapabilities('broadcast');
 
   beforeEach(() => {
     MockBroadcastChannel.reset();
@@ -132,7 +134,16 @@ describe('BroadcastTransportAdapter', () => {
       type: 'hello',
       roomId: 'room-serialization',
       fromPeerId: 'peer-a',
-      payload: { role: 'editor' },
+      timestamp: 1,
+      payload: {
+        peer: {
+          id: 'peer-a',
+          joinedAt: 1,
+          lastSeen: 1,
+          role: 'editor',
+        },
+        protocol,
+      },
     };
     adapter.send(signal);
 
@@ -141,7 +152,20 @@ describe('BroadcastTransportAdapter', () => {
     expect(JSON.parse(outbound as string)).toEqual({
       source: 'flockjs',
       version: 1,
-      signal,
+      signal: {
+        type: 'hello',
+        roomId: 'room-serialization',
+        fromPeerId: 'peer-a',
+        payload: {
+          peer: {
+            id: 'peer-a',
+            joinedAt: 1,
+            lastSeen: 1,
+            role: 'editor',
+          },
+          protocol,
+        },
+      },
     });
 
     await adapter.disconnect();
@@ -160,9 +184,29 @@ describe('BroadcastTransportAdapter', () => {
       type: 'welcome',
       roomId: 'room-deserialize',
       fromPeerId: 'peer-a',
-      payload: { id: 'peer-a' },
+      timestamp: 10,
+      payload: {
+        peer: {
+          id: 'peer-a',
+          joinedAt: 1,
+          lastSeen: 10,
+        },
+        protocol,
+      },
     };
-    adapterA.send(signal);
+    MockBroadcastChannel.emitRaw(
+      'flockjs:room-deserialize',
+      JSON.stringify({
+        source: 'flockjs',
+        protocolVersion: 2,
+        codec: 'json',
+        roomId: signal.roomId,
+        fromPeerId: signal.fromPeerId,
+        timestamp: signal.timestamp,
+        type: signal.type,
+        payload: signal.payload,
+      }),
+    );
 
     expect(onMessage).toHaveBeenCalledTimes(1);
     expect(onMessage).toHaveBeenCalledWith(signal);
