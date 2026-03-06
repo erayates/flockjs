@@ -56,6 +56,8 @@ Transport support in the current baseline:
 - Binary-capable transports upgrade to MessagePack after negotiation when both peers support it; JSON remains the compatibility fallback.
 - BroadcastChannel remains JSON-only by design.
 - Malformed peer protocol frames are rejected at the transport boundary, logged with warn-level diagnostics, and ignored without crashing the room.
+- `reconnect` is opt-in; `reconnect: true` uses defaults of `maxAttempts: 5`, `backoffMs: 100`, `backoffMultiplier: 2`, and `maxBackoffMs: 2000`.
+- Automatic reconnect begins retrying within `500ms` of an unexpected transport disconnect and uses exponential backoff with internal jitter.
 - In browser environments, room lifecycle automatically handles `beforeunload` and `pagehide` to trigger disconnect and propagate peer leave.
 - `debug.transport` logs transport selection plus protocol negotiation and downgrade decisions via `console.debug`.
 
@@ -89,6 +91,7 @@ Peer lifecycle notes:
 - `room.peers` and `peerCount` are backed by the internal peer registry used by presence lookups.
 - Explicit peer leaves are removed immediately.
 - Inferred disconnects keep the peer visible for up to `5000ms` so same-peer reconnect races can dedupe without emitting a spurious leave/join pair.
+- Automatic reconnect keeps the same room instance, peer identity, and local engine state across retry attempts.
 
 ## Event Names
 
@@ -101,7 +104,7 @@ room.on('peer:update', (peer) => {});
 // Connection lifecycle
 room.on('connected', () => {});
 room.on('disconnected', ({ reason }) => {});
-room.on('reconnecting', (attempt) => {});
+room.on('reconnecting', ({ attempt }) => {});
 room.on('error', (error) => {});
 
 // Room lifecycle
@@ -113,6 +116,8 @@ Connection event semantics:
 
 - `error`: emitted when transport/runtime errors are surfaced to room lifecycle.
 - `disconnected`: emitted for manual disconnect and transport-level disconnects with a reason payload.
+- With `reconnect` enabled, unexpected transport disconnects emit `reconnecting` during retries and defer `disconnected` until retries are exhausted.
+- A successful automatic reconnect emits `connected` again without changing `peerId` or recreating engine instances.
 
 ## Minimal Flow
 

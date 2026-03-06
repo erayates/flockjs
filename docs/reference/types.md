@@ -46,6 +46,13 @@ export interface WebRTCOptions {
   iceGatherTimeoutMs?: number;
   dataChannel?: WebRTCDataChannelOptions;
 }
+
+export interface ReconnectOptions {
+  maxAttempts?: number;
+  backoffMs?: number;
+  backoffMultiplier?: number;
+  maxBackoffMs?: number;
+}
 ```
 
 Transport baseline note:
@@ -60,8 +67,10 @@ Transport baseline note:
 - The internal peer wire protocol is versioned and codec-negotiated per peer; public room/event types stay unchanged.
 - BroadcastChannel payloads remain a versioned JSON envelope.
 - WebRTC and relay websocket transports can negotiate MessagePack after connect, with JSON fallback for legacy or json-only peers.
+- Automatic reconnect is opt-in via `reconnect`; `reconnect: true` resolves to the built-in exponential backoff strategy.
 - Browser room instances auto-register unload handlers (`beforeunload`, `pagehide`) to propagate `peer:leave`.
 - Inferred disconnects keep a peer in registry-backed snapshots for up to `5000ms` before removal so reconnect races can dedupe cleanly.
+- Successful automatic reconnect keeps the same room instance, `peerId`, and local engine state.
 - `debug.transport` enables transport-selection and protocol-negotiation logging without changing public types.
 
 ## Engine Option Types

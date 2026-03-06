@@ -79,7 +79,21 @@ const room = createRoom('my-room', {
 });
 ```
 
-Reconnect strategy fields are available in `RoomOptions`; automatic reconnection behavior is planned for subsequent transport hardening.
+Automatic reconnection is opt-in. Set `reconnect: true` to use the default strategy, or pass an object to override:
+
+- `maxAttempts`: default `5`
+- `backoffMs`: default `100`
+- `backoffMultiplier`: default `2`
+- `maxBackoffMs`: default `2000`
+
+Behavior:
+
+- unexpected transport disconnects begin retrying within `500ms`
+- retries use exponential backoff with internal jitter
+- `reconnecting` fires for each retry attempt
+- successful recovery emits `connected` again
+- `disconnected` is deferred until retry exhaustion when auto reconnect is enabled
+- room identity and local engine state are preserved across reconnect attempts
 
 ## CRDT with Yjs (Planned)
 
