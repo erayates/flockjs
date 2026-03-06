@@ -312,6 +312,7 @@ describe('createRoom', () => {
         type: 'leave',
         roomId: room.id,
         fromPeerId: 'peer-b',
+        payload: {},
       });
 
       expect(room.peerCount).toBe(1);

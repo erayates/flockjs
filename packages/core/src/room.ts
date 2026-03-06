@@ -8,6 +8,7 @@ import { createFlockError, FlockError } from './flock-error';
 import { createRuntimePeerId, getWindowEventTarget, type WindowEventTarget } from './internal/env';
 import { readString } from './internal/guards';
 import { PeerRegistry } from './internal/peer-registry';
+import { coerceTypedPeer } from './internal/typed-peer';
 import { selectTransportAdapter } from './transports/select-transport';
 import type {
   RoomTransportSignal,
@@ -543,7 +544,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   }
 
   private handleHelloSignal(signal: Extract<RoomTransportSignal, { type: 'hello' }>): void {
-    this.peerRegistry.upsertRemote(signal.payload.peer as Peer<TPresence>);
+    this.peerRegistry.upsertRemote(coerceTypedPeer<TPresence>(signal.payload.peer));
     this.sendSignal({
       type: 'welcome',
       toPeerId: signal.fromPeerId,
@@ -559,13 +560,11 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       | Extract<RoomTransportSignal, { type: 'welcome' }>
       | Extract<RoomTransportSignal, { type: 'presence:update' }>,
   ): void {
-    this.peerRegistry.upsertRemote(signal.payload.peer as Peer<TPresence>);
+    this.peerRegistry.upsertRemote(coerceTypedPeer<TPresence>(signal.payload.peer));
   }
 
   private handleLeaveSignal(signal: Extract<RoomTransportSignal, { type: 'leave' }>): void {
-    const peer = Reflect.get((signal as { payload?: unknown }).payload ?? {}, 'peer') as
-      | Peer<TPresence>
-      | undefined;
+    const peer = signal.payload.peer;
     if (peer && peer.id === signal.fromPeerId) {
       this.peerRegistry.removeRemoteImmediately(signal.fromPeerId);
       return;
