@@ -10,6 +10,12 @@ Audience: users and contributors.
 | Recommended room size     | 8-12 peers   | 500+ peers      | same-browser only |
 | Setup complexity          | low          | medium          | low               |
 
+Binary codec note:
+
+- WebRTC and relay websocket transports can switch from JSON to MessagePack after peer negotiation.
+- BroadcastChannel stays JSON-only so same-origin tabs share a stable text envelope.
+- Mixed-version or json-only peers automatically downgrade to JSON rather than failing the room.
+
 ## Optimization
 
 ### Cursor Throughput

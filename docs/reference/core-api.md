@@ -51,9 +51,13 @@ Transport support in the current baseline:
 - DataChannel default: ordered and reliable delivery (`ordered: true`, no `maxRetransmits` set).
 - `maxPeers` is a hard cap for WebRTC mesh peer-connection context creation.
 - BroadcastChannel transport uses a serialized JSON envelope (`source: "flockjs"`, `version: 1`).
-- Relay websocket transport messages are schema-validated before room delivery.
+- Peer transport messages are schema-validated before room delivery.
+- WebRTC data channels and relay websocket transport negotiate a peer protocol version and codec on connect.
+- Binary-capable transports upgrade to MessagePack after negotiation when both peers support it; JSON remains the compatibility fallback.
+- BroadcastChannel remains JSON-only by design.
+- Malformed peer protocol frames are rejected at the transport boundary, logged with warn-level diagnostics, and ignored without crashing the room.
 - In browser environments, room lifecycle automatically handles `beforeunload` and `pagehide` to trigger disconnect and propagate peer leave.
-- `debug.transport` logs the requested transport mode, the selected transport, and the selection reason via `console.debug`.
+- `debug.transport` logs transport selection plus protocol negotiation and downgrade decisions via `console.debug`.
 
 ## `Room` Contract
 

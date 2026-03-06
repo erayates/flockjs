@@ -16,11 +16,21 @@ const room = createRoom('my-room', {
 });
 ```
 
-`debug.transport` writes a `console.debug` entry whenever transport selection happens. The payload includes:
+`debug.transport` writes `console.debug` entries for both transport selection and peer-protocol negotiation. Selection payloads include:
 
 - requested mode
 - selected transport
 - selection reason
+
+Negotiation payloads include:
+
+- transport kind
+- remote peer id
+- negotiated protocol version
+- negotiated codec (`json` or `msgpack`)
+- downgrade or compatibility reason when applicable
+
+Malformed peer protocol frames are reported through `console.warn` with transport and rejection context. They are ignored after logging instead of being delivered to the room.
 
 ## Diagnostics Snapshot
 

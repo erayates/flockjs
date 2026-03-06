@@ -57,10 +57,12 @@ Transport baseline note:
 - `relayUrl` remains the canonical signaling URL for real WebRTC negotiation.
 - Relay-backed room messaging is available via `transport: 'websocket'`.
 - `transport: 'auto'` selects `broadcast`, then `webrtc`, then `websocket`, and finally `in-memory` when no browser-capable transport is available.
-- BroadcastChannel payloads are serialized and validated via a versioned JSON envelope.
+- The internal peer wire protocol is versioned and codec-negotiated per peer; public room/event types stay unchanged.
+- BroadcastChannel payloads remain a versioned JSON envelope.
+- WebRTC and relay websocket transports can negotiate MessagePack after connect, with JSON fallback for legacy or json-only peers.
 - Browser room instances auto-register unload handlers (`beforeunload`, `pagehide`) to propagate `peer:leave`.
 - Inferred disconnects keep a peer in registry-backed snapshots for up to `5000ms` before removal so reconnect races can dedupe cleanly.
-- `debug.transport` enables transport-selection logging without changing public types.
+- `debug.transport` enables transport-selection and protocol-negotiation logging without changing public types.
 
 ## Engine Option Types
 
