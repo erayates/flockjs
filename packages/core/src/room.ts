@@ -8,6 +8,12 @@ import { createFlockError, FlockError } from './flock-error';
 import { createRuntimePeerId, getWindowEventTarget, type WindowEventTarget } from './internal/env';
 import { readString } from './internal/guards';
 import { PeerRegistry } from './internal/peer-registry';
+import {
+  computeReconnectDelay,
+  delayWithAbort,
+  type ResolvedReconnectOptions,
+  resolveReconnectOptions,
+} from './internal/reconnect';
 import { coerceTypedPeer } from './internal/typed-peer';
 import { selectTransportAdapter } from './transports/select-transport';
 import type {
@@ -59,6 +65,10 @@ function isFlockError(value: unknown): value is FlockError {
   return value instanceof FlockError;
 }
 
+function isAbortError(value: unknown): boolean {
+  return value instanceof Error && value.name === 'AbortError';
+}
+
 function toTransportError(error: unknown): FlockError {
   if (isFlockError(error)) {
     return error;
@@ -69,6 +79,25 @@ function toTransportError(error: unknown): FlockError {
     error instanceof Error ? error.message : 'Unknown transport connection error.',
     false,
     error,
+  );
+}
+
+function createReconnectExhaustedError(
+  attempts: number,
+  reason: string | null,
+  lastError: unknown,
+): FlockError {
+  return createFlockError(
+    'NETWORK_ERROR',
+    `Reconnect attempts exhausted after ${attempts} attempt${attempts === 1 ? '' : 's'}.`,
+    true,
+    {
+      source: 'room-reconnect',
+      kind: 'max-attempts-exhausted',
+      attempts,
+      ...(reason ? { reason } : {}),
+      ...(lastError !== undefined ? { lastError } : {}),
+    },
   );
 }
 
@@ -105,15 +134,25 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private readonly peerRegistry: PeerRegistry<TPresence>;
 
+  private readonly reconnectOptions: ResolvedReconnectOptions | null;
+
   private transport: TransportAdapter | null = null;
 
   private transportUnsubscribe: Unsubscribe | null = null;
 
+  private pendingTransportUnsubscribe: Unsubscribe | null = null;
+
   private connectionPromise: Promise<void> | null = null;
+
+  private reconnectPromise: Promise<void> | null = null;
+
+  private reconnectController: AbortController | null = null;
 
   private hasConnectedBefore = false;
 
   private reconnectAttempt = 0;
+
+  private lastDisconnectReason: string | null = null;
 
   private unloadHandlersRegistered = false;
 
@@ -148,6 +187,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   public constructor(roomId: string, options: RoomOptions<TPresence> = {}) {
     this.id = roomId;
     this.options = options;
+    this.reconnectOptions = resolveReconnectOptions(options.reconnect);
     this.peerId = createRuntimePeerId();
 
     const now = Date.now();
@@ -194,9 +234,13 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     return this.peerRegistry.getRemoteCount();
   }
 
-  public async connect(): Promise<void> {
+  public connect(): Promise<void> {
     if (this.currentStatus === 'connected') {
-      return;
+      return Promise.resolve();
+    }
+
+    if (this.reconnectPromise) {
+      return this.reconnectPromise;
     }
 
     if (this.connectionPromise) {
@@ -210,14 +254,31 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     });
     this.connectionPromise = task;
 
-    try {
-      await task;
-    } finally {
-      this.connectionPromise = null;
-    }
+    void task.then(
+      () => {
+        if (this.connectionPromise === task) {
+          this.connectionPromise = null;
+        }
+      },
+      () => {
+        if (this.connectionPromise === task) {
+          this.connectionPromise = null;
+        }
+      },
+    );
+
+    return task;
   }
 
   public async disconnect(): Promise<void> {
+    this.cancelReconnect();
+
+    if (this.reconnectPromise) {
+      await this.reconnectPromise.catch(() => {
+        return undefined;
+      });
+    }
+
     if (this.connectionPromise) {
       await this.connectionPromise.catch(() => {
         return undefined;
@@ -227,6 +288,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     this.unregisterUnloadHandlers();
 
     if (!this.transport) {
+      this.lastDisconnectReason = 'manual';
       this.clearRemoteState();
       this.setStatus('disconnected');
       this.roomEventEmitter.emit('disconnected', { reason: 'manual' });
@@ -246,6 +308,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     await this.transport.disconnect();
     this.transport = null;
 
+    this.lastDisconnectReason = 'manual';
     this.clearRemoteState();
 
     this.setStatus('disconnected');
@@ -416,38 +479,10 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     this.setStatus('connecting');
 
     try {
-      const transport = selectTransportAdapter(this.id, this.peerId, this.options);
-      this.transport = transport;
-      this.transportUnsubscribe = transport.onMessage((signal) => {
-        this.handleSignal(signal);
-      });
-
-      await transport.connect();
-      this.registerUnloadHandlers();
-
-      this.hasConnectedBefore = true;
-      this.reconnectAttempt = 0;
-      this.setStatus('connected');
-      this.roomEventEmitter.emit('connected', undefined);
-      this.notifyPeerSubscribers();
-
-      this.sendSignal({
-        type: 'hello',
-        payload: {
-          peer: this.selfPeer,
-          protocol: getTransportProtocolCapabilities(transport.kind),
-        },
-      });
+      const transport = await this.openTransportAttempt();
+      this.activateConnectedTransport(transport);
     } catch (error) {
-      const flockError = toTransportError(error);
-      this.unregisterUnloadHandlers();
-      this.clearRemoteState();
-      this.setStatus('error');
-      this.roomEventEmitter.emit('error', flockError);
-      this.transportUnsubscribe?.();
-      this.transportUnsubscribe = null;
-      this.transport = null;
-      throw flockError;
+      this.failInitialConnect(error);
     }
   }
 
@@ -601,13 +636,17 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   }
 
   private async handleTransportDisconnectedSignal(payload: { reason?: string }): Promise<void> {
-    if (!this.transport && this.currentStatus === 'disconnected') {
+    if (
+      !this.transport &&
+      (this.currentStatus === 'disconnected' || this.currentStatus === 'reconnecting')
+    ) {
       return;
     }
 
     this.unregisterUnloadHandlers();
 
     const reason = payload.reason ?? 'transport-disconnected';
+    this.lastDisconnectReason = reason;
 
     this.transportUnsubscribe?.();
     this.transportUnsubscribe = null;
@@ -622,8 +661,14 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     }
 
     this.peerRegistry.markAllRemotesDisconnected();
-    this.setStatus('disconnected');
-    this.roomEventEmitter.emit('disconnected', { reason });
+
+    if (!this.shouldAutoReconnect()) {
+      this.setStatus('disconnected');
+      this.roomEventEmitter.emit('disconnected', { reason });
+      return;
+    }
+
+    this.startReconnectLoop(reason);
   }
 
   private sendSignal(
@@ -698,6 +743,206 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     return this.peerRegistry.getAll();
   }
 
+  private async openTransportAttempt(): Promise<TransportAdapter> {
+    const transport = selectTransportAdapter(this.id, this.peerId, this.options);
+    const unsubscribe = transport.onMessage((signal) => {
+      this.handleSignal(signal);
+    });
+
+    try {
+      await transport.connect();
+      this.pendingTransportUnsubscribe = unsubscribe;
+      return transport;
+    } catch (error) {
+      unsubscribe();
+      await transport.disconnect().catch(() => {
+        return undefined;
+      });
+      throw error;
+    }
+  }
+
+  private activateConnectedTransport(transport: TransportAdapter): void {
+    this.transport = transport;
+    this.transportUnsubscribe = this.pendingTransportUnsubscribe;
+    this.pendingTransportUnsubscribe = null;
+
+    this.registerUnloadHandlers();
+    this.hasConnectedBefore = true;
+    this.reconnectAttempt = 0;
+    this.lastDisconnectReason = null;
+    this.setStatus('connected');
+    this.roomEventEmitter.emit('connected', undefined);
+    this.notifyPeerSubscribers();
+
+    this.sendSignal({
+      type: 'hello',
+      payload: {
+        peer: this.selfPeer,
+        protocol: getTransportProtocolCapabilities(transport.kind),
+      },
+    });
+    this.replayLocalEphemeralState();
+  }
+
+  private failInitialConnect(error: unknown): never {
+    const flockError = toTransportError(error);
+    this.unregisterUnloadHandlers();
+    this.clearRemoteState();
+    this.pendingTransportUnsubscribe?.();
+    this.pendingTransportUnsubscribe = null;
+    this.transportUnsubscribe?.();
+    this.transportUnsubscribe = null;
+    this.transport = null;
+    this.setStatus('error');
+    this.roomEventEmitter.emit('error', flockError);
+    throw flockError;
+  }
+
+  private shouldAutoReconnect(): boolean {
+    return (
+      this.reconnectOptions !== null && this.hasConnectedBefore && this.reconnectPromise === null
+    );
+  }
+
+  private startReconnectLoop(reason: string): void {
+    if (this.reconnectPromise) {
+      return;
+    }
+
+    this.setStatus('reconnecting');
+    const task = this.runReconnectLoop(reason);
+    this.reconnectPromise = task;
+
+    void task.then(
+      () => {
+        if (this.reconnectPromise === task) {
+          this.reconnectPromise = null;
+        }
+      },
+      () => {
+        if (this.reconnectPromise === task) {
+          this.reconnectPromise = null;
+        }
+      },
+    );
+  }
+
+  private async runReconnectLoop(reason: string): Promise<void> {
+    const reconnectOptions = this.reconnectOptions;
+    if (!reconnectOptions) {
+      return;
+    }
+
+    this.lastDisconnectReason = reason;
+
+    const controller = new AbortController();
+    this.reconnectController = controller;
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= reconnectOptions.maxAttempts; attempt += 1) {
+      if (this.wasReconnectAborted(controller)) {
+        this.clearReconnectController(controller);
+        return;
+      }
+
+      this.reconnectAttempt = attempt;
+      this.setStatus('reconnecting');
+      this.roomEventEmitter.emit('reconnecting', { attempt });
+
+      try {
+        const delayMs = computeReconnectDelay(attempt, reconnectOptions, Math.random);
+        await delayWithAbort(delayMs, controller.signal);
+      } catch (error) {
+        if (isAbortError(error)) {
+          this.clearReconnectController(controller);
+          return;
+        }
+
+        throw error;
+      }
+
+      if (this.wasReconnectAborted(controller)) {
+        this.clearReconnectController(controller);
+        return;
+      }
+
+      try {
+        const transport = await this.openTransportAttempt();
+
+        if (this.wasReconnectAborted(controller)) {
+          await this.disposeTransportAttempt(transport);
+          this.clearReconnectController(controller);
+          return;
+        }
+
+        this.activateConnectedTransport(transport);
+        this.clearReconnectController(controller);
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    this.clearReconnectController(controller);
+    this.reconnectAttempt = 0;
+    this.setStatus('disconnected');
+    this.roomEventEmitter.emit(
+      'error',
+      createReconnectExhaustedError(
+        reconnectOptions.maxAttempts,
+        this.lastDisconnectReason,
+        lastError,
+      ),
+    );
+    this.roomEventEmitter.emit('disconnected', { reason: 'reconnect-exhausted' });
+  }
+
+  private clearReconnectController(controller: AbortController): void {
+    if (this.reconnectController === controller) {
+      this.reconnectController = null;
+    }
+  }
+
+  private wasReconnectAborted(controller: AbortController): boolean {
+    return controller.signal.aborted;
+  }
+
+  private cancelReconnect(): void {
+    this.reconnectController?.abort();
+    this.reconnectController = null;
+  }
+
+  private async disposeTransportAttempt(transport: TransportAdapter): Promise<void> {
+    this.pendingTransportUnsubscribe?.();
+    this.pendingTransportUnsubscribe = null;
+    await transport.disconnect().catch(() => {
+      return undefined;
+    });
+  }
+
+  private replayLocalEphemeralState(): void {
+    const selfCursor = this.cursorPositions.get(this.peerId);
+    if (selfCursor) {
+      this.sendSignal({
+        type: 'cursor:update',
+        payload: {
+          cursor: selfCursor,
+        },
+      });
+    }
+
+    const selfAwareness = this.awarenessByPeer.get(this.peerId);
+    if (selfAwareness && this.hasReplayableAwareness(selfAwareness)) {
+      this.sendSignal({
+        type: 'awareness:update',
+        payload: {
+          awareness: selfAwareness,
+        },
+      });
+    }
+  }
+
   private notifyPeerSubscribers(): void {
     const snapshot = this.getSelfAndPeersSnapshot();
     for (const subscriber of this.peerSubscribers) {
@@ -767,6 +1012,10 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     for (const subscriber of this.awarenessSubscribers) {
       subscriber(snapshot);
     }
+  }
+
+  private hasReplayableAwareness(awareness: AwarenessState): boolean {
+    return Object.keys(awareness).some((key) => key !== 'peerId');
   }
 
   private emitCustomEvent(name: string, payload: unknown, from: Peer<TPresence>): void {

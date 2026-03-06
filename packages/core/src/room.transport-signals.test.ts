@@ -43,11 +43,14 @@ class MockTransportAdapter implements TransportAdapter {
   }
 }
 
-async function createMockedRoom(adapter: MockTransportAdapter): Promise<Room> {
+async function createMockedRoom(
+  createAdapter: () => MockTransportAdapter,
+  options: Record<string, unknown> = {},
+): Promise<Room> {
   vi.resetModules();
   vi.doMock('./transports/select-transport', () => ({
     selectTransportAdapter: () => {
-      return adapter;
+      return createAdapter();
     },
   }));
 
@@ -56,6 +59,7 @@ async function createMockedRoom(adapter: MockTransportAdapter): Promise<Room> {
   return mod.createRoom('room-transport-signals', {
     transport: 'webrtc',
     relayUrl: 'ws://relay.local',
+    ...options,
   });
 }
 
@@ -70,7 +74,9 @@ afterEach(() => {
 describe('Room transport signal mapping', () => {
   it('maps internal transport error signals to room error events', async () => {
     const adapter = new MockTransportAdapter();
-    const room = await createMockedRoom(adapter);
+    const room = await createMockedRoom(() => {
+      return adapter;
+    });
 
     const onError = vi.fn();
     room.on('error', onError);
@@ -102,7 +108,9 @@ describe('Room transport signal mapping', () => {
     vi.useFakeTimers();
 
     const adapter = new MockTransportAdapter();
-    const room = await createMockedRoom(adapter);
+    const room = await createMockedRoom(() => {
+      return adapter;
+    });
 
     const onDisconnected = vi.fn();
     const onPeerLeave = vi.fn();
@@ -168,6 +176,73 @@ describe('Room transport signal mapping', () => {
     expect(adapter.disconnectCalls).toBe(1);
 
     room.off('disconnected', onDisconnected);
+    await room.disconnect();
+  });
+
+  it('defers disconnected and reconnects automatically when reconnect is enabled', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
+    const initialAdapter = new MockTransportAdapter();
+    const reconnectAdapter = new MockTransportAdapter();
+    const adapters = [initialAdapter, reconnectAdapter];
+    const room = await createMockedRoom(
+      () => {
+        const adapter = adapters.shift();
+        if (!adapter) {
+          throw new Error('Expected queued adapter.');
+        }
+
+        return adapter;
+      },
+      {
+        reconnect: true,
+      },
+    );
+
+    const onDisconnected = vi.fn();
+    const onReconnecting = vi.fn();
+    room.on('disconnected', onDisconnected);
+    room.on('reconnecting', onReconnecting);
+
+    await room.connect();
+
+    initialAdapter.emit({
+      type: 'hello',
+      roomId: room.id,
+      fromPeerId: 'peer-b',
+      payload: {
+        peer: {
+          id: 'peer-b',
+          joinedAt: 1,
+          lastSeen: 1,
+        },
+      },
+    });
+
+    initialAdapter.emit({
+      type: 'transport:disconnected',
+      roomId: room.id,
+      fromPeerId: room.peerId,
+      payload: {
+        reason: 'socket-gone',
+      },
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(room.status).toBe('reconnecting');
+    expect(room.peerCount).toBe(1);
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(onReconnecting).toHaveBeenCalledWith({ attempt: 1 });
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(room.status).toBe('connected');
+    expect(room.peerCount).toBe(1);
+    expect(reconnectAdapter.disconnectCalls).toBe(0);
+
     await room.disconnect();
   });
 });
