@@ -65,6 +65,30 @@ function send(socket: WebSocket, payload: JsonMessage): void {
   socket.send(JSON.stringify(payload));
 }
 
+function createTransportFrame(message: {
+  type: string;
+  roomId: string;
+  fromPeerId: string;
+  toPeerId?: string;
+  timestamp?: number;
+  payload: Record<string, unknown>;
+}): JsonMessage {
+  return {
+    type: 'transport',
+    message: {
+      source: 'flockjs',
+      protocolVersion: 2,
+      codec: 'json',
+      roomId: message.roomId,
+      fromPeerId: message.fromPeerId,
+      ...(message.toPeerId ? { toPeerId: message.toPeerId } : {}),
+      timestamp: message.timestamp ?? 1,
+      type: message.type,
+      payload: message.payload,
+    },
+  };
+}
+
 function sendAndWaitForMessage(
   socket: WebSocket,
   payload: JsonMessage,
@@ -95,27 +119,6 @@ async function closeSocket(socket: WebSocket): Promise<void> {
 
     socket.once('close', onClose);
     socket.close();
-  });
-}
-
-async function terminateSocket(socket: WebSocket): Promise<void> {
-  if (socket.readyState === WebSocket.CLOSED) {
-    return;
-  }
-
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
-      socket.off('close', onClose);
-      resolve();
-    }, SOCKET_CLOSE_TIMEOUT_MS);
-
-    const onClose = (): void => {
-      clearTimeout(timer);
-      resolve();
-    };
-
-    socket.once('close', onClose);
-    socket.terminate();
   });
 }
 
@@ -187,7 +190,7 @@ describe(
         type: 'joined',
         roomId: 'room-join',
         peerId: 'b',
-        peers: ['a'],
+        peers: [{ peerId: 'a' }],
       });
 
       const peerJoinedA = await peerJoinedPromise;
@@ -276,34 +279,47 @@ describe(
         await waitForMessage(client, (message) => message.type === 'joined');
       }
 
-      send(clientA, {
-        type: 'transport',
-        signal: {
+      send(
+        clientA,
+        createTransportFrame({
           type: 'event',
           roomId: 'room-transport',
           fromPeerId: 'a',
           toPeerId: 'b',
           payload: {
-            scope: 'one',
+            name: 'targeted',
+            payload: {
+              scope: 'one',
+            },
           },
-        },
-      });
+        }),
+      );
 
       const targetedAtB = await waitForMessage(
         clientB,
         (message) =>
           message.type === 'transport' &&
-          (message.signal as { fromPeerId?: string } | undefined)?.fromPeerId === 'a',
+          (message.message as { signal?: { fromPeerId?: string } } | undefined)?.signal
+            ?.fromPeerId === 'a',
       );
       expect(targetedAtB).toMatchObject({
         type: 'transport',
-        signal: {
-          type: 'event',
-          roomId: 'room-transport',
-          fromPeerId: 'a',
-          toPeerId: 'b',
-          payload: {
-            scope: 'one',
+        message: {
+          source: 'flockjs',
+          version: 1,
+          signal: {
+            type: 'event',
+            roomId: 'room-transport',
+            fromPeerId: 'a',
+            toPeerId: 'b',
+            payload: {
+              event: {
+                name: 'targeted',
+                payload: {
+                  scope: 'one',
+                },
+              },
+            },
           },
         },
       });
@@ -317,42 +333,57 @@ describe(
         .catch(() => false);
       expect(noTargetedAtC).toBe(false);
 
-      send(clientA, {
-        type: 'transport',
-        signal: {
+      send(
+        clientA,
+        createTransportFrame({
           type: 'hello',
           roomId: 'room-transport',
           fromPeerId: 'a',
-        },
-      });
+          payload: {
+            peer: {
+              id: 'a',
+              joinedAt: 1,
+              lastSeen: 1,
+            },
+          },
+        }),
+      );
 
       const broadcastAtB = await waitForMessage(
         clientB,
         (message) =>
           message.type === 'transport' &&
-          (message.signal as { type?: string } | undefined)?.type === 'hello',
+          (message.message as { signal?: { type?: string } } | undefined)?.signal?.type === 'hello',
       );
       const broadcastAtC = await waitForMessage(
         clientC,
         (message) =>
           message.type === 'transport' &&
-          (message.signal as { type?: string } | undefined)?.type === 'hello',
+          (message.message as { signal?: { type?: string } } | undefined)?.signal?.type === 'hello',
       );
 
       expect(broadcastAtB).toMatchObject({
         type: 'transport',
-        signal: {
-          type: 'hello',
-          roomId: 'room-transport',
-          fromPeerId: 'a',
+        message: {
+          source: 'flockjs',
+          version: 1,
+          signal: {
+            type: 'hello',
+            roomId: 'room-transport',
+            fromPeerId: 'a',
+          },
         },
       });
       expect(broadcastAtC).toMatchObject({
         type: 'transport',
-        signal: {
-          type: 'hello',
-          roomId: 'room-transport',
-          fromPeerId: 'a',
+        message: {
+          source: 'flockjs',
+          version: 1,
+          signal: {
+            type: 'hello',
+            roomId: 'room-transport',
+            fromPeerId: 'a',
+          },
         },
       });
     });
@@ -507,7 +538,7 @@ describe(
         clientA,
         (message) => message.type === 'peer-left' && message.peerId === 'b',
       );
-      await terminateSocket(clientB);
+      await closeSocket(clientB);
       const peerLeft = await peerLeftPromise;
       expect(peerLeft).toMatchObject({
         type: 'peer-left',
@@ -592,14 +623,18 @@ describe(
 
       const transportNotJoinedError = await sendAndWaitForMessage(
         clientA,
-        {
-          type: 'transport',
-          signal: {
-            type: 'hello',
-            roomId: 'room-checks',
-            fromPeerId: 'peer-a',
+        createTransportFrame({
+          type: 'hello',
+          roomId: 'room-checks',
+          fromPeerId: 'peer-a',
+          payload: {
+            peer: {
+              id: 'peer-a',
+              joinedAt: 1,
+              lastSeen: 1,
+            },
           },
-        },
+        }),
         (message) => message.type === 'error',
       );
       expect(transportNotJoinedError).toMatchObject({
@@ -690,14 +725,18 @@ describe(
 
       const transportRoomMismatchError = await sendAndWaitForMessage(
         clientA,
-        {
-          type: 'transport',
-          signal: {
-            type: 'hello',
-            roomId: 'room-other',
-            fromPeerId: 'peer-a',
+        createTransportFrame({
+          type: 'hello',
+          roomId: 'room-other',
+          fromPeerId: 'peer-a',
+          payload: {
+            peer: {
+              id: 'peer-a',
+              joinedAt: 1,
+              lastSeen: 1,
+            },
           },
-        },
+        }),
         (message) => message.type === 'error',
       );
       expect(transportRoomMismatchError).toMatchObject({
@@ -706,14 +745,18 @@ describe(
 
       const transportSenderMismatchError = await sendAndWaitForMessage(
         clientA,
-        {
-          type: 'transport',
-          signal: {
-            type: 'hello',
-            roomId: 'room-checks',
-            fromPeerId: 'peer-not-a',
+        createTransportFrame({
+          type: 'hello',
+          roomId: 'room-checks',
+          fromPeerId: 'peer-not-a',
+          payload: {
+            peer: {
+              id: 'peer-not-a',
+              joinedAt: 1,
+              lastSeen: 1,
+            },
           },
-        },
+        }),
         (message) => message.type === 'error',
       );
       expect(transportSenderMismatchError).toMatchObject({

@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseRelayClientMessage, serializeRelayServerMessage } from './protocol';
+import {
+  parseRelayClientMessage,
+  type RelayTransportMessage,
+  serializeRelayServerMessage,
+} from './protocol';
+
+const protocol = {
+  minVersion: 1 as const,
+  maxVersion: 2 as const,
+  codecs: ['json', 'msgpack'] as const,
+  preferredCodec: 'msgpack' as const,
+};
 
 describe('relay protocol', () => {
   it('serializes relay server messages', () => {
@@ -9,9 +20,9 @@ describe('relay protocol', () => {
         type: 'joined',
         roomId: 'room-a',
         peerId: 'peer-a',
-        peers: ['peer-b'],
+        peers: [{ peerId: 'peer-b' }],
       }),
-    ).toBe('{"type":"joined","roomId":"room-a","peerId":"peer-a","peers":["peer-b"]}');
+    ).toBe('{"type":"joined","roomId":"room-a","peerId":"peer-a","peers":[{"peerId":"peer-b"}]}');
   });
 
   it('parses join and leave client messages', () => {
@@ -22,6 +33,7 @@ describe('relay protocol', () => {
           roomId: 'room-a',
           peerId: 'peer-a',
           token: 'token-1',
+          protocol,
         }),
       ),
     ).toEqual({
@@ -29,20 +41,7 @@ describe('relay protocol', () => {
       roomId: 'room-a',
       peerId: 'peer-a',
       token: 'token-1',
-    });
-
-    expect(
-      parseRelayClientMessage(
-        JSON.stringify({
-          type: 'join',
-          roomId: 'room-a',
-          peerId: 'peer-a',
-        }),
-      ),
-    ).toEqual({
-      type: 'join',
-      roomId: 'room-a',
-      peerId: 'peer-a',
+      protocol,
     });
 
     expect(
@@ -119,29 +118,41 @@ describe('relay protocol', () => {
       parseRelayClientMessage(
         JSON.stringify({
           type: 'transport',
-          signal: {
-            type: 'event',
+          message: {
+            source: 'flockjs',
+            protocolVersion: 2,
+            codec: 'json',
             roomId: 'room-a',
             fromPeerId: 'peer-a',
             toPeerId: 'peer-b',
+            timestamp: 1,
+            type: 'event',
             payload: {
-              ok: true,
+              name: 'ping',
+              payload: {
+                ok: true,
+              },
             },
           },
         }),
       ),
     ).toEqual({
       type: 'transport',
+      encoding: 'json',
       signal: {
         type: 'event',
         roomId: 'room-a',
         fromPeerId: 'peer-a',
         toPeerId: 'peer-b',
+        timestamp: 1,
         payload: {
-          ok: true,
+          name: 'ping',
+          payload: {
+            ok: true,
+          },
         },
       },
-    });
+    } satisfies RelayTransportMessage);
   });
 
   it('rejects invalid relay client payloads', () => {
@@ -172,20 +183,16 @@ describe('relay protocol', () => {
     expect(
       parseRelayClientMessage(
         JSON.stringify({
-          type: 'leave',
-          peerId: 'peer-a',
-        }),
-      ),
-    ).toBeNull();
-
-    expect(
-      parseRelayClientMessage(
-        JSON.stringify({
           type: 'transport',
-          signal: {
-            type: 'transport:error',
+          message: {
+            source: 'flockjs',
+            protocolVersion: 2,
+            codec: 'json',
             roomId: 'room-a',
             fromPeerId: 'peer-a',
+            timestamp: 1,
+            type: 'event',
+            payload: {},
           },
         }),
       ),

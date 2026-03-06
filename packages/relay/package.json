@@ -23,6 +23,7 @@
     "test:watch": "vitest --config ../../vitest.package.config.ts"
   },
   "dependencies": {
+    "@msgpack/msgpack": "^3.1.2",
     "zod": "^3.24.1",
     "ws": "^8.18.0"
   },

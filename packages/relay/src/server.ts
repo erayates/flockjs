@@ -5,12 +5,23 @@ import { type RawData, type WebSocket, WebSocketServer } from 'ws';
 import {
   parseRelayClientMessage,
   type RelayClientMessage,
+  type RelayPeerJoinedMessage,
+  type RelayPeerLeftMessage,
+  resolveRelayTransportSession,
   serializeRelayServerMessage,
 } from './protocol';
 
 interface RelayPeerContext {
   roomId: string;
   peerId: string;
+  protocol?: Extract<RelayClientMessage, { type: 'join' }>['protocol'];
+}
+
+export interface RelayServer {
+  readonly port: number;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  getAddress(): string;
 }
 
 export interface RelayAuthorizeContext {
@@ -26,27 +37,32 @@ export interface RelayServerOptions {
   authorize?: (context: RelayAuthorizeContext) => boolean | Promise<boolean>;
 }
 
-export interface RelayServer {
-  readonly port: number;
-  start(): Promise<void>;
-  stop(): Promise<void>;
-  getAddress(): string;
-}
-
-function toUtf8String(data: RawData): string {
+function normalizeRawData(data: RawData, isBinary: boolean): string | Uint8Array {
   if (typeof data === 'string') {
     return data;
   }
 
+  if (!isBinary) {
+    if (data instanceof ArrayBuffer) {
+      return Buffer.from(data).toString('utf8');
+    }
+
+    if (Array.isArray(data)) {
+      return Buffer.concat(data).toString('utf8');
+    }
+
+    return data.toString('utf8');
+  }
+
   if (data instanceof ArrayBuffer) {
-    return Buffer.from(data).toString('utf8');
+    return new Uint8Array(data);
   }
 
   if (Array.isArray(data)) {
-    return Buffer.concat(data).toString('utf8');
+    return new Uint8Array(Buffer.concat(data));
   }
 
-  return data.toString('utf8');
+  return new Uint8Array(data);
 }
 
 export class RelayServerImpl implements RelayServer {
@@ -131,8 +147,8 @@ export class RelayServerImpl implements RelayServer {
   }
 
   private handleConnection(socket: WebSocket, request: IncomingMessage): void {
-    socket.on('message', (rawData) => {
-      const payload = toUtf8String(rawData);
+    socket.on('message', (rawData, isBinary) => {
+      const payload = normalizeRawData(rawData, isBinary);
       const message = parseRelayClientMessage(payload);
       if (!message) {
         this.sendError(socket, 'INVALID_MESSAGE', 'Invalid signaling message.');
@@ -243,12 +259,19 @@ export class RelayServerImpl implements RelayServer {
       return;
     }
 
-    const existingPeers = Array.from(roomPeers.keys());
+    const existingPeers = Array.from(roomPeers.entries()).map(([peerId, peerSocket]) => {
+      const peerContext = this.contexts.get(peerSocket);
+      return {
+        peerId,
+        ...(peerContext?.protocol ? { protocol: peerContext.protocol } : {}),
+      };
+    });
     roomPeers.set(message.peerId, socket);
     this.rooms.set(message.roomId, roomPeers);
     this.contexts.set(socket, {
       roomId: message.roomId,
       peerId: message.peerId,
+      ...(message.protocol ? { protocol: message.protocol } : {}),
     });
 
     socket.send(
@@ -264,6 +287,7 @@ export class RelayServerImpl implements RelayServer {
       type: 'peer-joined',
       roomId: message.roomId,
       peerId: message.peerId,
+      ...(message.protocol ? { protocol: message.protocol } : {}),
     });
   }
 
@@ -310,14 +334,25 @@ export class RelayServerImpl implements RelayServer {
       return;
     }
 
-    const payload = serializeRelayServerMessage({
-      type: 'transport',
-      signal: message.signal,
-    });
-
     if (message.signal.toPeerId) {
       const target = roomPeers.get(message.signal.toPeerId);
-      target?.send(payload);
+      if (!target) {
+        return;
+      }
+
+      const targetContext = this.contexts.get(target);
+      target.send(
+        serializeRelayServerMessage(
+          {
+            type: 'transport',
+            signal: message.signal,
+            encoding: message.encoding,
+          },
+          {
+            transportSession: resolveRelayTransportSession(targetContext?.protocol),
+          },
+        ),
+      );
       return;
     }
 
@@ -326,7 +361,19 @@ export class RelayServerImpl implements RelayServer {
         continue;
       }
 
-      socket.send(payload);
+      const targetContext = this.contexts.get(socket);
+      socket.send(
+        serializeRelayServerMessage(
+          {
+            type: 'transport',
+            signal: message.signal,
+            encoding: message.encoding,
+          },
+          {
+            transportSession: resolveRelayTransportSession(targetContext?.protocol),
+          },
+        ),
+      );
     }
   }
 
@@ -358,11 +405,7 @@ export class RelayServerImpl implements RelayServer {
   private broadcastToRoom(
     roomId: string,
     excludePeerId: string,
-    message: {
-      type: 'peer-joined' | 'peer-left';
-      roomId: string;
-      peerId: string;
-    },
+    message: RelayPeerJoinedMessage | RelayPeerLeftMessage,
   ): void {
     const roomPeers = this.rooms.get(roomId);
     if (!roomPeers) {
