@@ -160,6 +160,16 @@ const PEER_MESSAGE_TYPES = new Set<string>([
   'awareness:update',
   'event',
 ]);
+const RESERVED_PEER_KEYS = new Set(['id', 'joinedAt', 'lastSeen', 'name', 'color', 'avatar']);
+
+interface ParsedBaseSignal {
+  type: PeerWireMessageType;
+  roomId: string;
+  fromPeerId: string;
+  toPeerId?: string;
+  timestamp?: number;
+  payload?: unknown;
+}
 
 function isPeerWireMessageType(value: unknown): value is PeerWireMessageType {
   return typeof value === 'string' && PEER_MESSAGE_TYPES.has(value);
@@ -218,7 +228,36 @@ function parsePeer(value: unknown): Peer<PresenceData> | null {
     return null;
   }
 
-  return value as Peer<PresenceData>;
+  const peer: Peer<PresenceData> = {
+    id,
+    joinedAt,
+    lastSeen,
+  };
+
+  for (const [key, entry] of Object.entries(value)) {
+    if (RESERVED_PEER_KEYS.has(key)) {
+      continue;
+    }
+
+    peer[key] = entry;
+  }
+
+  const name = readString(value, 'name');
+  if (name !== undefined) {
+    peer.name = name;
+  }
+
+  const color = readString(value, 'color');
+  if (color !== undefined) {
+    peer.color = color;
+  }
+
+  const avatar = readString(value, 'avatar');
+  if (avatar !== undefined) {
+    peer.avatar = avatar;
+  }
+
+  return peer;
 }
 
 function parseCursor(value: unknown, fromPeerId: string): CursorPosition | null {
@@ -289,7 +328,7 @@ function parseEventPayload(value: unknown): EventWirePayload | null {
   const loopback = readBoolean(value, 'loopback');
   return {
     name,
-    payload: Reflect.get(value, 'payload'),
+    payload: value.payload,
     ...(loopback !== undefined ? { loopback } : {}),
   };
 }
@@ -320,7 +359,7 @@ function parseHelloOrWelcomePayload(
     return null;
   }
 
-  const protocolValue = Reflect.get(value, 'protocol');
+  const protocolValue = value.protocol;
   const protocol =
     protocolValue === undefined ? undefined : parsePeerProtocolCapabilities(protocolValue);
   if (protocolValue !== undefined && !protocol) {
@@ -365,7 +404,7 @@ function parseLeavePayload(value: unknown): LeaveWirePayload | null {
     return null;
   }
 
-  const peerValue = Reflect.get(value, 'peer');
+  const peerValue = value.peer;
   if (peerValue === undefined) {
     return {};
   }
@@ -410,71 +449,16 @@ function parseAwarenessPayload(value: unknown, fromPeerId: string): AwarenessWir
   };
 }
 
-function parseModernPayload<TType extends PeerWireMessageType>(
-  type: TType,
-  value: unknown,
-  fromPeerId: string,
-): PeerWirePayloadByType[TType] | null {
-  switch (type) {
-    case 'hello':
-    case 'welcome':
-      return parseHelloOrWelcomePayload(value, true) as PeerWirePayloadByType[TType] | null;
-    case 'presence:update':
-      return parsePresencePayload(value) as PeerWirePayloadByType[TType] | null;
-    case 'leave':
-      return parseLeavePayload(value) as PeerWirePayloadByType[TType] | null;
-    case 'cursor:update':
-      return parseCursorPayload(value, fromPeerId) as PeerWirePayloadByType[TType] | null;
-    case 'awareness:update':
-      return parseAwarenessPayload(value, fromPeerId) as PeerWirePayloadByType[TType] | null;
-    case 'event':
-      return parseEventPayload(value) as PeerWirePayloadByType[TType] | null;
-    default:
-      return null;
-  }
-}
-
-function parseLegacyPayload<TType extends PeerWireMessageType>(
-  type: TType,
-  value: unknown,
-  fromPeerId: string,
-): PeerWirePayloadByType[TType] | null {
-  switch (type) {
-    case 'hello':
-    case 'welcome':
-      return parseHelloOrWelcomePayload(value, false) as PeerWirePayloadByType[TType] | null;
-    case 'presence:update':
-      return parsePresencePayload(value) as PeerWirePayloadByType[TType] | null;
-    case 'leave':
-      return parseLeavePayload(value) as PeerWirePayloadByType[TType] | null;
-    case 'cursor:update':
-      return parseCursorPayload(value, fromPeerId) as PeerWirePayloadByType[TType] | null;
-    case 'awareness:update':
-      return parseAwarenessPayload(value, fromPeerId) as PeerWirePayloadByType[TType] | null;
-    case 'event':
-      return parseLegacyEventPayload(value) as PeerWirePayloadByType[TType] | null;
-    default:
-      return null;
-  }
-}
-
-function parseBaseSignal(value: unknown): {
-  type: PeerWireMessageType;
-  roomId: string;
-  fromPeerId: string;
-  toPeerId?: string;
-  timestamp?: number;
-  payload?: unknown;
-} | null {
+function parseBaseSignal(value: unknown): ParsedBaseSignal | null {
   if (!isObject(value)) {
     return null;
   }
 
-  const type = Reflect.get(value, 'type');
-  const roomId = Reflect.get(value, 'roomId');
-  const fromPeerId = Reflect.get(value, 'fromPeerId');
-  const toPeerId = Reflect.get(value, 'toPeerId');
-  const timestamp = Reflect.get(value, 'timestamp');
+  const type = value.type;
+  const roomId = value.roomId;
+  const fromPeerId = value.fromPeerId;
+  const toPeerId = value.toPeerId;
+  const timestamp = value.timestamp;
 
   if (
     !isPeerWireMessageType(type) ||
@@ -492,8 +476,125 @@ function parseBaseSignal(value: unknown): {
     fromPeerId,
     ...(toPeerId !== undefined ? { toPeerId } : {}),
     ...(timestamp !== undefined ? { timestamp } : {}),
-    ...(Reflect.has(value, 'payload') ? { payload: Reflect.get(value, 'payload') } : {}),
+    ...('payload' in value ? { payload: value.payload } : {}),
   };
+}
+
+function createMessageBase(
+  signal: ParsedBaseSignal,
+  timestamp: number,
+): {
+  roomId: string;
+  fromPeerId: string;
+  toPeerId?: string;
+  timestamp: number;
+} {
+  return {
+    roomId: signal.roomId,
+    fromPeerId: signal.fromPeerId,
+    ...(signal.toPeerId !== undefined ? { toPeerId: signal.toPeerId } : {}),
+    timestamp,
+  };
+}
+
+function parseSignalMessage(
+  signal: ParsedBaseSignal,
+  timestamp: number,
+  mode: 'legacy' | 'modern',
+): PeerWireMessage | null {
+  const base = createMessageBase(signal, timestamp);
+
+  switch (signal.type) {
+    case 'hello': {
+      const payload = parseHelloOrWelcomePayload(signal.payload, mode === 'modern');
+      if (!payload) {
+        return null;
+      }
+
+      return {
+        type: 'hello',
+        ...base,
+        payload,
+      };
+    }
+    case 'welcome': {
+      const payload = parseHelloOrWelcomePayload(signal.payload, mode === 'modern');
+      if (!payload) {
+        return null;
+      }
+
+      return {
+        type: 'welcome',
+        ...base,
+        payload,
+      };
+    }
+    case 'presence:update': {
+      const payload = parsePresencePayload(signal.payload);
+      if (!payload) {
+        return null;
+      }
+
+      return {
+        type: 'presence:update',
+        ...base,
+        payload,
+      };
+    }
+    case 'leave': {
+      const payload = parseLeavePayload(signal.payload);
+      if (!payload) {
+        return null;
+      }
+
+      return {
+        type: 'leave',
+        ...base,
+        payload,
+      };
+    }
+    case 'cursor:update': {
+      const payload = parseCursorPayload(signal.payload, signal.fromPeerId);
+      if (!payload) {
+        return null;
+      }
+
+      return {
+        type: 'cursor:update',
+        ...base,
+        payload,
+      };
+    }
+    case 'awareness:update': {
+      const payload = parseAwarenessPayload(signal.payload, signal.fromPeerId);
+      if (!payload) {
+        return null;
+      }
+
+      return {
+        type: 'awareness:update',
+        ...base,
+        payload,
+      };
+    }
+    case 'event': {
+      const payload =
+        mode === 'legacy'
+          ? parseLegacyEventPayload(signal.payload)
+          : parseEventPayload(signal.payload);
+      if (!payload) {
+        return null;
+      }
+
+      return {
+        type: 'event',
+        ...base,
+        payload,
+      };
+    }
+    default:
+      return null;
+  }
 }
 
 function parseLegacyEnvelopeObject(value: unknown, now: () => number): PeerWireMessage | null {
@@ -501,24 +602,12 @@ function parseLegacyEnvelopeObject(value: unknown, now: () => number): PeerWireM
     return null;
   }
 
-  const signal = parseBaseSignal(Reflect.get(value, 'signal'));
+  const signal = parseBaseSignal(value.signal);
   if (!signal) {
     return null;
   }
 
-  const payload = parseLegacyPayload(signal.type, signal.payload, signal.fromPeerId);
-  if (!payload) {
-    return null;
-  }
-
-  return {
-    type: signal.type,
-    roomId: signal.roomId,
-    fromPeerId: signal.fromPeerId,
-    ...(signal.toPeerId !== undefined ? { toPeerId: signal.toPeerId } : {}),
-    timestamp: signal.timestamp ?? now(),
-    payload,
-  } as PeerWireMessage;
+  return parseSignalMessage(signal, signal.timestamp ?? now(), 'legacy');
 }
 
 function parseModernEnvelopeObject(
@@ -533,7 +622,7 @@ function parseModernEnvelopeObject(
     return null;
   }
 
-  const codec = Reflect.get(value, 'codec');
+  const codec = value.codec;
   if (!isPeerProtocolCodec(codec)) {
     return null;
   }
@@ -551,19 +640,7 @@ function parseModernEnvelopeObject(
     return null;
   }
 
-  const payload = parseModernPayload(signal.type, signal.payload, signal.fromPeerId);
-  if (!payload) {
-    return null;
-  }
-
-  return {
-    type: signal.type,
-    roomId: signal.roomId,
-    fromPeerId: signal.fromPeerId,
-    ...(signal.toPeerId !== undefined ? { toPeerId: signal.toPeerId } : {}),
-    timestamp: signal.timestamp,
-    payload,
-  } as PeerWireMessage;
+  return parseSignalMessage(signal, signal.timestamp, 'modern');
 }
 
 function tryParseJson(payload: string): unknown | null {
@@ -624,19 +701,7 @@ function parseDirectSignal(value: unknown, now: () => number): PeerWireMessage |
     return null;
   }
 
-  const payload = parseModernPayload(signal.type, signal.payload, signal.fromPeerId);
-  if (!payload) {
-    return null;
-  }
-
-  return {
-    type: signal.type,
-    roomId: signal.roomId,
-    fromPeerId: signal.fromPeerId,
-    ...(signal.toPeerId !== undefined ? { toPeerId: signal.toPeerId } : {}),
-    timestamp: signal.timestamp ?? now(),
-    payload,
-  } as PeerWireMessage;
+  return parseSignalMessage(signal, signal.timestamp ?? now(), 'modern');
 }
 
 export const LEGACY_PROTOCOL_SESSION: PeerProtocolSession = {
@@ -667,10 +732,10 @@ export function parsePeerProtocolCapabilities(value: unknown): PeerProtocolCapab
     return null;
   }
 
-  const minVersion = Reflect.get(value, 'minVersion');
-  const maxVersion = Reflect.get(value, 'maxVersion');
-  const codecs = parsePeerCapabilitiesCodecs(Reflect.get(value, 'codecs'));
-  const preferredCodec = Reflect.get(value, 'preferredCodec');
+  const minVersion = value.minVersion;
+  const maxVersion = value.maxVersion;
+  const codecs = parsePeerCapabilitiesCodecs(value.codecs);
+  const preferredCodec = value.preferredCodec;
 
   if (
     minVersion !== 1 ||
@@ -714,7 +779,7 @@ export function negotiatePeerProtocolSession(
     };
   }
 
-  const version = sharedMax as PeerProtocolVersion;
+  const version: PeerProtocolVersion = sharedMax === 1 ? 1 : 2;
   const localSupportsMsgPack = local.codecs.includes(MSGPACK_CODEC);
   const remoteSupportsMsgPack = remote.codecs.includes(MSGPACK_CODEC);
   const useMessagePack =

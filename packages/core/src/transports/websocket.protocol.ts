@@ -1,3 +1,4 @@
+import { isObject, readString } from '../internal/guards';
 import {
   decodeMessagePack,
   encodeMessagePack,
@@ -10,18 +11,6 @@ import {
 } from '../protocol/peer-message';
 import type { RoomTransportSignal } from './transport';
 import { parseTransportEnvelope, serializeTransportEnvelopeObject } from './transport.protocol';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
-function readOptionalString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
-}
 
 function parseJson(payload: string): unknown | null {
   try {
@@ -41,16 +30,16 @@ function encodeJson(value: unknown): string | null {
 }
 
 function parsePeerDescriptor(value: unknown): WebSocketRelayPeerDescriptor | null {
-  if (!isRecord(value)) {
+  if (!isObject(value)) {
     return null;
   }
 
-  const peerId = readString(value.peerId);
+  const peerId = readString(value, 'peerId');
   if (!peerId) {
     return null;
   }
 
-  const protocolValue = Reflect.get(value, 'protocol');
+  const protocolValue = value.protocol;
   const protocol =
     protocolValue === undefined ? undefined : parsePeerProtocolCapabilities(protocolValue);
   if (protocolValue !== undefined && !protocol) {
@@ -63,19 +52,19 @@ function parsePeerDescriptor(value: unknown): WebSocketRelayPeerDescriptor | nul
 function parseRelayPayload(payload: unknown): Record<string, unknown> | null {
   if (typeof payload === 'string') {
     const parsed = parseJson(payload);
-    return isRecord(parsed) ? parsed : null;
+    return isObject(parsed) ? parsed : null;
   }
 
   if (payload instanceof Uint8Array || payload instanceof ArrayBuffer) {
     const decoded = decodeMessagePack(payload);
-    if (!decoded.ok || !isRecord(decoded.value)) {
+    if (!decoded.ok || !isObject(decoded.value)) {
       return null;
     }
 
     return decoded.value;
   }
 
-  return isRecord(payload) ? payload : null;
+  return isObject(payload) ? payload : null;
 }
 
 export interface WebSocketRelayJoinMessage {
@@ -185,14 +174,14 @@ export function parseWebSocketRelayServerMessage(
     return null;
   }
 
-  const type = readString(parsed.type);
+  const type = readString(parsed, 'type');
   if (!type) {
     return null;
   }
 
   if (type === 'joined') {
-    const roomId = readString(parsed.roomId);
-    const peerId = readString(parsed.peerId);
+    const roomId = readString(parsed, 'roomId');
+    const peerId = readString(parsed, 'peerId');
     if (!roomId || !peerId || !Array.isArray(parsed.peers)) {
       return null;
     }
@@ -216,13 +205,13 @@ export function parseWebSocketRelayServerMessage(
   }
 
   if (type === 'peer-joined') {
-    const roomId = readString(parsed.roomId);
-    const peerId = readString(parsed.peerId);
+    const roomId = readString(parsed, 'roomId');
+    const peerId = readString(parsed, 'peerId');
     if (!roomId || !peerId) {
       return null;
     }
 
-    const protocolValue = Reflect.get(parsed, 'protocol');
+    const protocolValue = parsed.protocol;
     const protocol =
       protocolValue === undefined ? undefined : parsePeerProtocolCapabilities(protocolValue);
     if (protocolValue !== undefined && !protocol) {
@@ -244,8 +233,8 @@ export function parseWebSocketRelayServerMessage(
   }
 
   if (type === 'peer-left') {
-    const roomId = readString(parsed.roomId);
-    const peerId = readString(parsed.peerId);
+    const roomId = readString(parsed, 'roomId');
+    const peerId = readString(parsed, 'peerId');
     if (!roomId || !peerId) {
       return null;
     }
@@ -258,7 +247,7 @@ export function parseWebSocketRelayServerMessage(
   }
 
   if (type === 'transport') {
-    const signal = parseTransportEnvelope(Reflect.get(parsed, 'message'), {
+    const signal = parseTransportEnvelope(parsed.message, {
       transport: 'websocket',
       allowBinary: true,
     });
@@ -275,8 +264,8 @@ export function parseWebSocketRelayServerMessage(
   }
 
   if (type === 'error') {
-    const code = readString(parsed.code);
-    const message = readString(parsed.message);
+    const code = readString(parsed, 'code');
+    const message = readString(parsed, 'message');
     if (!code || !message) {
       return null;
     }
@@ -299,19 +288,19 @@ export function parseWebSocketRelayClientMessage(
     return null;
   }
 
-  const type = readString(parsed.type);
+  const type = readString(parsed, 'type');
   if (!type) {
     return null;
   }
 
   if (type === 'join') {
-    const roomId = readString(parsed.roomId);
-    const peerId = readString(parsed.peerId);
+    const roomId = readString(parsed, 'roomId');
+    const peerId = readString(parsed, 'peerId');
     if (!roomId || !peerId) {
       return null;
     }
 
-    const protocolValue = Reflect.get(parsed, 'protocol');
+    const protocolValue = parsed.protocol;
     const protocol =
       protocolValue === undefined ? undefined : parsePeerProtocolCapabilities(protocolValue);
     if (protocolValue !== undefined && !protocol) {
@@ -325,7 +314,7 @@ export function parseWebSocketRelayClientMessage(
       ...(protocol ? { protocol } : {}),
     };
 
-    const token = readOptionalString(parsed.token);
+    const token = readString(parsed, 'token');
     if (token !== undefined) {
       joinMessage.token = token;
     }
@@ -334,8 +323,8 @@ export function parseWebSocketRelayClientMessage(
   }
 
   if (type === 'leave') {
-    const roomId = readString(parsed.roomId);
-    const peerId = readString(parsed.peerId);
+    const roomId = readString(parsed, 'roomId');
+    const peerId = readString(parsed, 'peerId');
     if (!roomId || !peerId) {
       return null;
     }
@@ -348,7 +337,7 @@ export function parseWebSocketRelayClientMessage(
   }
 
   if (type === 'transport') {
-    const signal = parseTransportEnvelope(Reflect.get(parsed, 'message'), {
+    const signal = parseTransportEnvelope(parsed.message, {
       transport: 'websocket',
       allowBinary: true,
     });

@@ -4,6 +4,7 @@ import type { FlockError, RelayAuthToken } from '../types';
 import {
   parseSignalingServerMessage,
   serializeSignalingMessage,
+  type SignalingJoinMessage,
   type SignalingSignalMessage,
 } from './webrtc.protocol';
 
@@ -341,11 +342,11 @@ export class WebRTCSignalingClient {
       }, timeoutMs);
 
       const onOpen = (): void => {
-        const joinMessage = {
+        const joinMessage: SignalingJoinMessage = {
           type: 'join',
           roomId: this.options.roomId,
           peerId: this.options.peerId,
-        } as const;
+        };
 
         const payload = serializeSignalingMessage(
           relayAuthToken === undefined

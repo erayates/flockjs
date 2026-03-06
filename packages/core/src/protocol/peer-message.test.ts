@@ -26,6 +26,10 @@ function createHelloSignal(): PeerWireMessage {
         joinedAt: 1,
         lastSeen: 10,
         name: 'Alice',
+        role: 'editor',
+        profile: {
+          team: 'core',
+        },
       },
       protocol: modernCapabilities,
     },
@@ -194,6 +198,49 @@ describe('peer-message', () => {
     }
   });
 
+  it('preserves custom peer presence fields during normalization', () => {
+    expect(
+      parsePeerWireEnvelope(
+        JSON.stringify({
+          source: 'flockjs',
+          protocolVersion: 2,
+          codec: 'json',
+          roomId: 'room-a',
+          fromPeerId: 'peer-a',
+          timestamp: 20,
+          type: 'presence:update',
+          payload: {
+            peer: {
+              id: 'peer-a',
+              joinedAt: 1,
+              lastSeen: 20,
+              role: 'editor',
+              profile: {
+                team: 'core',
+              },
+            },
+          },
+        }),
+      ),
+    ).toEqual({
+      type: 'presence:update',
+      roomId: 'room-a',
+      fromPeerId: 'peer-a',
+      timestamp: 20,
+      payload: {
+        peer: {
+          id: 'peer-a',
+          joinedAt: 1,
+          lastSeen: 20,
+          role: 'editor',
+          profile: {
+            team: 'core',
+          },
+        },
+      },
+    } satisfies PeerWireMessage);
+  });
+
   it('rejects malformed payloads and unsupported protocol metadata', () => {
     expect(
       parsePeerProtocolCapabilities({
@@ -340,6 +387,22 @@ describe('peer-message', () => {
     ).toEqual({
       compatible: false,
       reason: 'No compatible protocol version. local=1-1 remote=2-2.',
+    });
+  });
+
+  it('normalizes protocol capability defaults and codec deduplication', () => {
+    expect(createProtocolCapabilities([], 'msgpack')).toEqual({
+      minVersion: 1,
+      maxVersion: 2,
+      codecs: ['json'],
+      preferredCodec: 'json',
+    });
+
+    expect(createProtocolCapabilities(['json', 'json', 'msgpack'], 'json')).toEqual({
+      minVersion: 1,
+      maxVersion: 2,
+      codecs: ['json', 'msgpack'],
+      preferredCodec: 'json',
     });
   });
 });

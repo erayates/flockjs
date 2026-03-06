@@ -18,6 +18,7 @@ import {
 import {
   parseWebSocketRelayServerMessage,
   serializeWebSocketRelayMessage,
+  type WebSocketRelayJoinMessage,
   type WebSocketRelayPeerDescriptor,
   type WebSocketRelayServerMessage,
 } from './websocket.protocol';
@@ -303,12 +304,12 @@ export class WebSocketTransportAdapter<
       }, timeoutMs);
 
       const onOpen = (): void => {
-        const joinMessage = {
+        const joinMessage: WebSocketRelayJoinMessage = {
           type: 'join',
           roomId: this.roomId,
           peerId: this.peerId,
           protocol: this.localProtocolCapabilities,
-        } as const;
+        };
 
         socket.send(
           serializeWebSocketRelayMessage(
