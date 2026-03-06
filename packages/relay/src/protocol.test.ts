@@ -197,5 +197,23 @@ describe('relay protocol', () => {
         }),
       ),
     ).toBeNull();
+
+    expect(
+      parseRelayClientMessage(
+        JSON.stringify({
+          type: 'transport',
+          message: {
+            source: 'flockjs',
+            protocolVersion: 2,
+            codec: 'json',
+            roomId: 'room-a',
+            fromPeerId: 'peer-a',
+            timestamp: 1,
+            type: 'unknown',
+            payload: {},
+          },
+        }),
+      ),
+    ).toBeNull();
   });
 });

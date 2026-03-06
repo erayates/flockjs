@@ -239,9 +239,22 @@ export type RelayServerMessage =
   | RelaySignalMessage
   | RelayTransportMessage
   | RelayErrorMessage;
+const RELAY_TRANSPORT_SIGNAL_TYPES = new Set<string>([
+  'hello',
+  'welcome',
+  'presence:update',
+  'leave',
+  'cursor:update',
+  'awareness:update',
+  'event',
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function isRelayTransportSignalType(value: unknown): value is RelayTransportSignal['type'] {
+  return typeof value === 'string' && RELAY_TRANSPORT_SIGNAL_TYPES.has(value);
 }
 
 function parseBaseSignal(value: unknown): {
@@ -263,15 +276,7 @@ function parseBaseSignal(value: unknown): {
   const timestamp = value.timestamp;
 
   if (
-    ![
-      'hello',
-      'welcome',
-      'presence:update',
-      'leave',
-      'cursor:update',
-      'awareness:update',
-      'event',
-    ].includes(String(type)) ||
+    !isRelayTransportSignalType(type) ||
     typeof roomId !== 'string' ||
     typeof fromPeerId !== 'string' ||
     (toPeerId !== undefined && typeof toPeerId !== 'string') ||
@@ -281,12 +286,12 @@ function parseBaseSignal(value: unknown): {
   }
 
   return {
-    type: type as RelayTransportSignal['type'],
+    type,
     roomId,
     fromPeerId,
     ...(toPeerId !== undefined ? { toPeerId } : {}),
     ...(timestamp !== undefined ? { timestamp } : {}),
-    ...(Reflect.has(value, 'payload') ? { payload: Reflect.get(value, 'payload') } : {}),
+    ...('payload' in value ? { payload: value.payload } : {}),
   };
 }
 
@@ -358,7 +363,7 @@ function parseTransportWrapper(
     return null;
   }
 
-  const signal = normalizeTransportEnvelope(Reflect.get(value, 'message'), now, carrier);
+  const signal = normalizeTransportEnvelope(value.message, now, carrier);
   if (!signal) {
     return null;
   }

@@ -507,7 +507,7 @@ describe(
       expect(noSignalForC).toBe(false);
     });
 
-    it('emits peer-left when a peer disconnects', async () => {
+    it('emits peer-left when a peer leaves', async () => {
       relayServer = createRelayServer({
         port: 0,
       });
@@ -538,7 +538,11 @@ describe(
         clientA,
         (message) => message.type === 'peer-left' && message.peerId === 'b',
       );
-      await closeSocket(clientB);
+      send(clientB, {
+        type: 'leave',
+        roomId: 'room-leave',
+        peerId: 'b',
+      });
       const peerLeft = await peerLeftPromise;
       expect(peerLeft).toMatchObject({
         type: 'peer-left',
@@ -624,15 +628,12 @@ describe(
       const transportNotJoinedError = await sendAndWaitForMessage(
         clientA,
         createTransportFrame({
-          type: 'hello',
+          type: 'event',
           roomId: 'room-checks',
           fromPeerId: 'peer-a',
           payload: {
-            peer: {
-              id: 'peer-a',
-              joinedAt: 1,
-              lastSeen: 1,
-            },
+            name: 'ping',
+            payload: true,
           },
         }),
         (message) => message.type === 'error',
@@ -726,15 +727,12 @@ describe(
       const transportRoomMismatchError = await sendAndWaitForMessage(
         clientA,
         createTransportFrame({
-          type: 'hello',
+          type: 'event',
           roomId: 'room-other',
           fromPeerId: 'peer-a',
           payload: {
-            peer: {
-              id: 'peer-a',
-              joinedAt: 1,
-              lastSeen: 1,
-            },
+            name: 'ping',
+            payload: true,
           },
         }),
         (message) => message.type === 'error',
@@ -746,15 +744,12 @@ describe(
       const transportSenderMismatchError = await sendAndWaitForMessage(
         clientA,
         createTransportFrame({
-          type: 'hello',
+          type: 'event',
           roomId: 'room-checks',
           fromPeerId: 'peer-not-a',
           payload: {
-            peer: {
-              id: 'peer-not-a',
-              joinedAt: 1,
-              lastSeen: 1,
-            },
+            name: 'ping',
+            payload: true,
           },
         }),
         (message) => message.type === 'error',

@@ -305,12 +305,12 @@ export class RelayServerImpl implements RelayServer {
       return;
     }
 
-    const outboundSignal = {
+    const outboundSignal: RelayClientMessage = {
       type: 'signal',
       roomId,
       fromPeerId: message.fromPeerId,
       toPeerId: message.toPeerId,
-    } as const;
+    };
 
     const signalMessage =
       message.description || message.candidate
