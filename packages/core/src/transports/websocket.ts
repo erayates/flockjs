@@ -1,6 +1,7 @@
 import { createFlockError } from '../flock-error';
 import { env } from '../internal/env';
 import { logProtocolNegotiation, logProtocolWarning } from '../internal/logger';
+import { normalizeMaxPeers } from '../internal/max-peers';
 import type { PeerProtocolCapabilities, PeerProtocolSession } from '../protocol/peer-message';
 import type { FlockError, PresenceData, RelayAuthToken, RoomOptions } from '../types';
 import {
@@ -81,6 +82,13 @@ function createWebSocketTransportError(message: string, cause?: unknown): FlockE
 }
 
 function createRelayMessageError(message: string, serverCode: string): FlockError {
+  if (serverCode === 'ROOM_FULL') {
+    return createFlockError('ROOM_FULL', message, true, {
+      source: 'websocket-relay',
+      serverCode,
+    });
+  }
+
   return createFlockError(
     serverCode === 'AUTH_FAILED' ? 'AUTH_FAILED' : 'NETWORK_ERROR',
     message,
@@ -304,11 +312,13 @@ export class WebSocketTransportAdapter<
       }, timeoutMs);
 
       const onOpen = (): void => {
+        const maxPeers = normalizeMaxPeers(this.options.maxPeers);
         const joinMessage: WebSocketRelayJoinMessage = {
           type: 'join',
           roomId: this.roomId,
           peerId: this.peerId,
           protocol: this.localProtocolCapabilities,
+          ...(maxPeers !== undefined ? { maxPeers } : {}),
         };
 
         socket.send(

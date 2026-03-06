@@ -49,6 +49,22 @@ const eventPayloadSchema = z.object({
   loopback: z.boolean().optional(),
 });
 
+function normalizeMaxPeers(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  if (!Number.isInteger(value) || value < 1) {
+    return undefined;
+  }
+
+  return value;
+}
+
+const maxPeersSchema = z.preprocess((value) => {
+  return normalizeMaxPeers(value);
+}, z.number().int().min(1).optional());
+
 const normalizedTransportSignalSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('hello'),
@@ -147,6 +163,7 @@ const joinMessageSchema = z.object({
   peerId: z.string().min(1),
   token: z.string().optional(),
   protocol: peerProtocolCapabilitiesSchema.optional(),
+  maxPeers: maxPeersSchema,
 });
 
 const leaveMessageSchema = z.object({

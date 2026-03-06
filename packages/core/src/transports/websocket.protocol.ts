@@ -1,4 +1,5 @@
 import { isObject, readString } from '../internal/guards';
+import { normalizeMaxPeers } from '../internal/max-peers';
 import {
   decodeMessagePack,
   encodeMessagePack,
@@ -73,6 +74,7 @@ export interface WebSocketRelayJoinMessage {
   peerId: string;
   token?: string;
   protocol?: PeerProtocolCapabilities;
+  maxPeers?: number;
 }
 
 export interface WebSocketRelayLeaveMessage {
@@ -317,6 +319,11 @@ export function parseWebSocketRelayClientMessage(
     const token = readString(parsed, 'token');
     if (token !== undefined) {
       joinMessage.token = token;
+    }
+
+    const maxPeers = normalizeMaxPeers(parsed.maxPeers);
+    if (maxPeers !== undefined) {
+      joinMessage.maxPeers = maxPeers;
     }
 
     return joinMessage;

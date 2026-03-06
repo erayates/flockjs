@@ -1,3 +1,5 @@
+import { normalizeMaxPeers } from '../internal/max-peers';
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -81,6 +83,7 @@ export interface SignalingJoinMessage {
   roomId: string;
   peerId: string;
   token?: string;
+  maxPeers?: number;
 }
 
 export interface SignalingSignalMessage {
@@ -258,6 +261,11 @@ export function parseSignalingClientMessage(payload: unknown): SignalingClientMe
     const token = readOptionalString(parsed.token);
     if (token !== undefined) {
       joinMessage.token = token;
+    }
+
+    const maxPeers = normalizeMaxPeers(parsed.maxPeers);
+    if (maxPeers !== undefined) {
+      joinMessage.maxPeers = maxPeers;
     }
 
     return joinMessage;

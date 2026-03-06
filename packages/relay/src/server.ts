@@ -17,6 +17,11 @@ interface RelayPeerContext {
   protocol?: Extract<RelayClientMessage, { type: 'join' }>['protocol'];
 }
 
+interface RelayRoom {
+  peers: Map<string, WebSocket>;
+  capacity?: number;
+}
+
 export interface RelayServer {
   readonly port: number;
   start(): Promise<void>;
@@ -70,7 +75,7 @@ export class RelayServerImpl implements RelayServer {
 
   private readonly contexts = new WeakMap<WebSocket, RelayPeerContext>();
 
-  private readonly rooms = new Map<string, Map<string, WebSocket>>();
+  private readonly rooms = new Map<string, RelayRoom>();
 
   private currentPort: number;
 
@@ -253,21 +258,30 @@ export class RelayServerImpl implements RelayServer {
       }
     }
 
-    const roomPeers = this.rooms.get(message.roomId) ?? new Map<string, WebSocket>();
-    if (roomPeers.has(message.peerId)) {
+    const room = this.rooms.get(message.roomId) ?? {
+      peers: new Map<string, WebSocket>(),
+      ...(message.maxPeers !== undefined ? { capacity: message.maxPeers } : {}),
+    };
+
+    if (room.peers.has(message.peerId)) {
       this.sendError(socket, 'PEER_EXISTS', 'PeerId already exists in this room.');
       return;
     }
 
-    const existingPeers = Array.from(roomPeers.entries()).map(([peerId, peerSocket]) => {
+    if (room.capacity !== undefined && room.peers.size >= room.capacity) {
+      this.sendError(socket, 'ROOM_FULL', 'Room is full.');
+      return;
+    }
+
+    const existingPeers = Array.from(room.peers.entries()).map(([peerId, peerSocket]) => {
       const peerContext = this.contexts.get(peerSocket);
       return {
         peerId,
         ...(peerContext?.protocol ? { protocol: peerContext.protocol } : {}),
       };
     });
-    roomPeers.set(message.peerId, socket);
-    this.rooms.set(message.roomId, roomPeers);
+    room.peers.set(message.peerId, socket);
+    this.rooms.set(message.roomId, room);
     this.contexts.set(socket, {
       roomId: message.roomId,
       peerId: message.peerId,
@@ -295,12 +309,12 @@ export class RelayServerImpl implements RelayServer {
     roomId: string,
     message: Extract<RelayClientMessage, { type: 'signal' }>,
   ): void {
-    const roomPeers = this.rooms.get(roomId);
-    if (!roomPeers) {
+    const room = this.rooms.get(roomId);
+    if (!room) {
       return;
     }
 
-    const target = roomPeers.get(message.toPeerId);
+    const target = room.peers.get(message.toPeerId);
     if (!target) {
       return;
     }
@@ -329,13 +343,13 @@ export class RelayServerImpl implements RelayServer {
     senderPeerId: string,
     message: Extract<RelayClientMessage, { type: 'transport' }>,
   ): void {
-    const roomPeers = this.rooms.get(roomId);
-    if (!roomPeers) {
+    const room = this.rooms.get(roomId);
+    if (!room) {
       return;
     }
 
     if (message.signal.toPeerId) {
-      const target = roomPeers.get(message.signal.toPeerId);
+      const target = room.peers.get(message.signal.toPeerId);
       if (!target) {
         return;
       }
@@ -356,7 +370,7 @@ export class RelayServerImpl implements RelayServer {
       return;
     }
 
-    for (const [peerId, socket] of roomPeers.entries()) {
+    for (const [peerId, socket] of room.peers.entries()) {
       if (peerId === senderPeerId) {
         continue;
       }
@@ -385,13 +399,13 @@ export class RelayServerImpl implements RelayServer {
 
     this.contexts.delete(socket);
 
-    const roomPeers = this.rooms.get(context.roomId);
-    if (!roomPeers) {
+    const room = this.rooms.get(context.roomId);
+    if (!room) {
       return;
     }
 
-    roomPeers.delete(context.peerId);
-    if (roomPeers.size === 0) {
+    room.peers.delete(context.peerId);
+    if (room.peers.size === 0) {
       this.rooms.delete(context.roomId);
     }
 
@@ -407,13 +421,13 @@ export class RelayServerImpl implements RelayServer {
     excludePeerId: string,
     message: RelayPeerJoinedMessage | RelayPeerLeftMessage,
   ): void {
-    const roomPeers = this.rooms.get(roomId);
-    if (!roomPeers) {
+    const room = this.rooms.get(roomId);
+    if (!room) {
       return;
     }
 
     const payload = serializeRelayServerMessage(message);
-    for (const [peerId, socket] of roomPeers.entries()) {
+    for (const [peerId, socket] of room.peers.entries()) {
       if (peerId === excludePeerId) {
         continue;
       }

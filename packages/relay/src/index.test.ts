@@ -201,6 +201,85 @@ describe(
       });
     });
 
+    it('enforces maxPeers using the first successful join capacity', async () => {
+      relayServer = createRelayServer({
+        port: 0,
+      });
+      await relayServer.start();
+
+      const clientA = new WebSocket(relayServer.getAddress());
+      const clientB = new WebSocket(relayServer.getAddress());
+      const clientC = new WebSocket(relayServer.getAddress());
+      sockets.push(clientA, clientB, clientC);
+
+      await Promise.all([waitForOpen(clientA), waitForOpen(clientB), waitForOpen(clientC)]);
+
+      const joinedA = await sendAndWaitForMessage(
+        clientA,
+        {
+          type: 'join',
+          roomId: 'room-capacity',
+          peerId: 'a',
+          maxPeers: 2,
+        },
+        (message) => message.type === 'joined',
+      );
+      expect(joinedA).toMatchObject({
+        type: 'joined',
+        roomId: 'room-capacity',
+        peerId: 'a',
+      });
+
+      const peerJoinedOnA = waitForMessage(
+        clientA,
+        (message) => message.type === 'peer-joined' && message.peerId === 'b',
+      );
+      const joinedB = await sendAndWaitForMessage(
+        clientB,
+        {
+          type: 'join',
+          roomId: 'room-capacity',
+          peerId: 'b',
+          maxPeers: 5,
+        },
+        (message) => message.type === 'joined',
+      );
+      expect(joinedB).toMatchObject({
+        type: 'joined',
+        roomId: 'room-capacity',
+        peerId: 'b',
+        peers: [{ peerId: 'a' }],
+      });
+      await expect(peerJoinedOnA).resolves.toMatchObject({
+        type: 'peer-joined',
+        peerId: 'b',
+      });
+
+      const noPeerJoinedForRejectedJoin = waitForMessage(
+        clientA,
+        (message) => message.type === 'peer-joined' && message.peerId === 'c',
+        150,
+      )
+        .then(() => true)
+        .catch(() => false);
+      const roomFullError = await sendAndWaitForMessage(
+        clientC,
+        {
+          type: 'join',
+          roomId: 'room-capacity',
+          peerId: 'c',
+          maxPeers: 10,
+        },
+        (message) => message.type === 'error',
+      );
+      expect(roomFullError).toMatchObject({
+        type: 'error',
+        code: 'ROOM_FULL',
+        message: 'Room is full.',
+      });
+      await expect(noPeerJoinedForRejectedJoin).resolves.toBe(false);
+    });
+
     it('routes signal messages to target peer only', async () => {
       relayServer = createRelayServer({
         port: 0,

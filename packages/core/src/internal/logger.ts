@@ -1,5 +1,5 @@
 import type { TransportKind } from '../transports/transport';
-import type { DebugOptions } from '../types';
+import type { DebugOptions, FlockError } from '../types';
 
 interface ConsoleLike {
   debug(message?: unknown, ...optionalParams: unknown[]): void;
@@ -86,4 +86,25 @@ export function logProtocolNegotiation(
   }
 
   consoleLike.debug('[flockjs][transport] protocol', details);
+}
+
+export function logRoomError(
+  debug: boolean | DebugOptions | undefined,
+  error: Pick<FlockError, 'code' | 'message' | 'recoverable' | 'cause'>,
+): void {
+  if (!isDebugChannelEnabled(debug, 'transport')) {
+    return;
+  }
+
+  const consoleLike = getConsoleLike();
+  if (!consoleLike) {
+    return;
+  }
+
+  consoleLike.debug('[flockjs][room] error', {
+    code: error.code,
+    message: error.message,
+    recoverable: error.recoverable,
+    cause: error.cause,
+  });
 }

@@ -1,6 +1,7 @@
-import { createFlockError } from '../flock-error';
+import { createFlockError, FlockError as FlockErrorRuntime } from '../flock-error';
 import { env } from '../internal/env';
 import { logProtocolNegotiation, logProtocolWarning } from '../internal/logger';
+import { normalizeMaxPeers } from '../internal/max-peers';
 import type { PeerProtocolSession } from '../protocol/peer-message';
 import type { FlockError, PresenceData, RoomOptions } from '../types';
 import {
@@ -82,6 +83,10 @@ function toPlainDescription(
 }
 
 function toFlockError(message: string, cause?: unknown): FlockError {
+  if (cause instanceof FlockErrorRuntime) {
+    return cause;
+  }
+
   return createFlockError('NETWORK_ERROR', message, false, cause);
 }
 
@@ -140,8 +145,9 @@ export class WebRTCTransportAdapter<
   ) {
     this.relayUrl = resolveRelayUrl(options);
     this.PeerConnectionCtor = getRTCPeerConnectionConstructor();
+    const maxPeers = normalizeMaxPeers(options.maxPeers);
     this.maxRemotePeers =
-      options.maxPeers === undefined ? Number.POSITIVE_INFINITY : Math.max(options.maxPeers - 1, 0);
+      maxPeers === undefined ? Number.POSITIVE_INFINITY : Math.max(maxPeers - 1, 0);
     this.iceGatherTimeoutMs = options.webrtc?.iceGatherTimeoutMs ?? DEFAULT_ICE_GATHER_TIMEOUT_MS;
     this.dataChannelOptions = this.resolveDataChannelOptions();
     this.dataChannelProtocol =
@@ -154,6 +160,7 @@ export class WebRTCTransportAdapter<
       return;
     }
 
+    const relayMaxPeers = normalizeMaxPeers(this.options.maxPeers);
     const signalingOptions: WebRTCSignalingClientOptions = {
       roomId: this.roomId,
       peerId: this.peerId,
@@ -174,6 +181,7 @@ export class WebRTCTransportAdapter<
         this.connected = false;
         this.emitDisconnectedSignal(reason ?? 'Signaling channel disconnected.');
       },
+      ...(relayMaxPeers !== undefined ? { maxPeers: relayMaxPeers } : {}),
       ...(this.options.relayAuth !== undefined ? { relayAuth: this.options.relayAuth } : {}),
     };
     const signalingClient = new WebRTCSignalingClient(signalingOptions);

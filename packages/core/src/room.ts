@@ -7,6 +7,8 @@ import { TypedEventEmitter } from './event-emitter';
 import { createFlockError, FlockError } from './flock-error';
 import { createRuntimePeerId, getWindowEventTarget, type WindowEventTarget } from './internal/env';
 import { readString } from './internal/guards';
+import { logRoomError } from './internal/logger';
+import { normalizeMaxPeers } from './internal/max-peers';
 import { PeerRegistry } from './internal/peer-registry';
 import {
   computeReconnectDelay,
@@ -128,6 +130,8 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private readonly options: RoomOptions<TPresence>;
 
+  private readonly maxPeers: number | undefined;
+
   private currentStatus: RoomStatus = 'idle';
 
   private readonly roomEventEmitter = new TypedEventEmitter<RoomEventMap<TPresence>>();
@@ -187,6 +191,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   public constructor(roomId: string, options: RoomOptions<TPresence> = {}) {
     this.id = roomId;
     this.options = options;
+    this.maxPeers = normalizeMaxPeers(options.maxPeers);
     this.reconnectOptions = resolveReconnectOptions(options.reconnect);
     this.peerId = createRuntimePeerId();
 
@@ -632,7 +637,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   }
 
   private handleTransportErrorSignal(payload: { error: FlockError }): void {
-    this.roomEventEmitter.emit('error', toTransportError(payload.error));
+    this.emitRoomError(toTransportError(payload.error));
   }
 
   private async handleTransportDisconnectedSignal(payload: { reason?: string }): Promise<void> {
@@ -795,7 +800,10 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     this.transportUnsubscribe = null;
     this.transport = null;
     this.setStatus('error');
-    this.roomEventEmitter.emit('error', flockError);
+    if (flockError.code === 'ROOM_FULL') {
+      this.roomEventEmitter.emit('room:full', undefined);
+    }
+    this.emitRoomError(flockError);
     throw flockError;
   }
 
@@ -887,8 +895,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     this.clearReconnectController(controller);
     this.reconnectAttempt = 0;
     this.setStatus('disconnected');
-    this.roomEventEmitter.emit(
-      'error',
+    this.emitRoomError(
       createReconnectExhaustedError(
         reconnectOptions.maxAttempts,
         this.lastDisconnectReason,
@@ -953,10 +960,14 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   private handlePeerRegistryJoin(peer: Peer<TPresence>): void {
     this.roomEventEmitter.emit('peer:join', peer);
 
-    const maxPeers = this.options.maxPeers;
-    if (maxPeers !== undefined && this.peerRegistry.getRemoteCount() + 1 >= maxPeers) {
+    if (this.maxPeers !== undefined && this.peerRegistry.getRemoteCount() + 1 >= this.maxPeers) {
       this.roomEventEmitter.emit('room:full', undefined);
     }
+  }
+
+  private emitRoomError(error: FlockError): void {
+    logRoomError(this.options.debug, error);
+    this.roomEventEmitter.emit('error', error);
   }
 
   private handlePeerRegistryUpdate(peer: Peer<TPresence>): void {

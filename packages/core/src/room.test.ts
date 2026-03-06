@@ -29,8 +29,14 @@ class MockTransportAdapter implements TransportAdapter {
 
   private handler: ((signal: TransportSignal) => void) | null = null;
 
+  public constructor(
+    private readonly connectBehavior: () => Promise<void> = async () => {
+      return undefined;
+    },
+  ) {}
+
   public connect(): Promise<void> {
-    return Promise.resolve();
+    return this.connectBehavior();
   }
 
   public disconnect(): Promise<void> {
@@ -61,6 +67,7 @@ class MockTransportAdapter implements TransportAdapter {
 
 afterEach(async () => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
   await wait(10);
 });
 
@@ -104,6 +111,120 @@ describe('createRoom', () => {
       recoverable: false,
     });
     expect(room.status).toBe('error');
+  });
+
+  it('emits room:full before error when initial connect is rejected for capacity', async () => {
+    vi.resetModules();
+
+    let adapter: MockTransportAdapter | null = null;
+    vi.doMock('./transports/select-transport', () => ({
+      selectTransportAdapter: () => {
+        if (!adapter) {
+          throw new Error('Expected mocked adapter.');
+        }
+
+        return adapter;
+      },
+    }));
+
+    try {
+      const flockErrorMod = await import('./flock-error');
+      const mod = await import('./index');
+      adapter = new MockTransportAdapter(async () => {
+        throw flockErrorMod.createFlockError('ROOM_FULL', 'Room is full.', true, {
+          source: 'websocket-relay',
+          serverCode: 'ROOM_FULL',
+        });
+      });
+      const room = mod.createRoom('room-full-connect', {
+        transport: 'websocket',
+        relayUrl: 'ws://relay.local',
+      });
+
+      const events: string[] = [];
+      const onRoomFull = vi.fn(() => {
+        events.push('room:full');
+      });
+      let emittedError: unknown;
+      const onError = vi.fn((error: unknown) => {
+        emittedError = error;
+        events.push('error');
+      });
+      room.on('room:full', onRoomFull);
+      room.on('error', onError);
+
+      const connectPromise = room.connect();
+
+      await expect(connectPromise).rejects.toMatchObject({
+        code: 'ROOM_FULL',
+        recoverable: true,
+        message: 'Room is full.',
+      });
+      const rejectedError = await connectPromise.catch((error: unknown) => {
+        return error;
+      });
+      expect(room.status).toBe('error');
+      expect(onRoomFull).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(events).toEqual(['room:full', 'error']);
+      expect(emittedError).toBe(rejectedError);
+    } finally {
+      vi.doUnmock('./transports/select-transport');
+      vi.resetModules();
+    }
+  });
+
+  it('logs structured room errors in debug transport mode', async () => {
+    vi.resetModules();
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {
+      return undefined;
+    });
+
+    let adapter: MockTransportAdapter | null = null;
+    vi.doMock('./transports/select-transport', () => ({
+      selectTransportAdapter: () => {
+        if (!adapter) {
+          throw new Error('Expected mocked adapter.');
+        }
+
+        return adapter;
+      },
+    }));
+
+    try {
+      const flockErrorMod = await import('./flock-error');
+      const mod = await import('./index');
+      adapter = new MockTransportAdapter(async () => {
+        throw flockErrorMod.createFlockError('ROOM_FULL', 'Room is full.', true, {
+          source: 'websocket-relay',
+          serverCode: 'ROOM_FULL',
+        });
+      });
+      const room = mod.createRoom('room-full-debug', {
+        transport: 'websocket',
+        relayUrl: 'ws://relay.local',
+        debug: {
+          transport: true,
+        },
+      });
+
+      await expect(room.connect()).rejects.toMatchObject({
+        code: 'ROOM_FULL',
+      });
+
+      expect(debugSpy).toHaveBeenCalledWith('[flockjs][room] error', {
+        code: 'ROOM_FULL',
+        message: 'Room is full.',
+        recoverable: true,
+        cause: {
+          source: 'websocket-relay',
+          serverCode: 'ROOM_FULL',
+        },
+      });
+    } finally {
+      vi.doUnmock('./transports/select-transport');
+      vi.resetModules();
+    }
   });
 
   it('throws a typed error when WebRTC runtime dependencies are unavailable', async () => {

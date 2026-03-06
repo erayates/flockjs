@@ -411,6 +411,37 @@ describe('WebSocketTransportAdapter', () => {
     await adapterB.disconnect();
   });
 
+  it('includes normalized maxPeers in relay join payloads', async () => {
+    const relay = new MockRelay();
+    const adapter = createWebSocketTransportAdapter(
+      'room-capacity',
+      'peer-a',
+      {
+        transport: 'websocket',
+        relayUrl: 'ws://relay.local',
+        maxPeers: 3,
+      },
+      relay.connect,
+    );
+
+    await adapter.connect();
+
+    const socket = relay.getSocket('peer-a');
+    if (!socket) {
+      throw new Error('Expected connected socket.');
+    }
+
+    expect(parseWebSocketRelayClientMessage(socket.sentPayloads[0])).toEqual({
+      type: 'join',
+      roomId: 'room-capacity',
+      peerId: 'peer-a',
+      protocol,
+      maxPeers: 3,
+    });
+
+    await adapter.disconnect();
+  });
+
   it('delivers broadcast messages to room peers', async () => {
     const relay = new MockRelay();
     const adapterA = createWebSocketTransportAdapter(
@@ -581,7 +612,27 @@ describe('WebSocketTransportAdapter', () => {
     await adapterA.disconnect();
   });
 
-  it('rejects auth failures and surfaces relay error frames after connect', async () => {
+  it('maps ROOM_FULL rejections and surfaces relay error frames after connect', async () => {
+    const fullRelay = new MockRelay({
+      rejectJoinCode: 'ROOM_FULL',
+      rejectJoinMessage: 'Room is full.',
+    });
+    const fullAdapter = createWebSocketTransportAdapter(
+      'room-full',
+      'peer-a',
+      {
+        transport: 'websocket',
+        relayUrl: 'ws://relay.local',
+      },
+      fullRelay.connect,
+    );
+
+    await expect(fullAdapter.connect()).rejects.toMatchObject({
+      code: 'ROOM_FULL',
+      recoverable: true,
+      message: 'Room is full.',
+    });
+
     const rejectingRelay = new MockRelay({
       rejectJoinCode: 'AUTH_FAILED',
       rejectJoinMessage: 'Authorization failed.',

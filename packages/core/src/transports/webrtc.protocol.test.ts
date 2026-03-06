@@ -14,8 +14,9 @@ describe('webrtc.protocol', () => {
         roomId: 'room-a',
         peerId: 'peer-a',
         token: 'token-1',
+        maxPeers: 4,
       }),
-    ).toBe('{"type":"join","roomId":"room-a","peerId":"peer-a","token":"token-1"}');
+    ).toBe('{"type":"join","roomId":"room-a","peerId":"peer-a","token":"token-1","maxPeers":4}');
   });
 
   it('parses joined and peer lifecycle server messages', () => {
@@ -209,6 +210,7 @@ describe('webrtc.protocol', () => {
           roomId: 'room-a',
           peerId: 'peer-a',
           token: 'token-1',
+          maxPeers: 2,
         }),
       ),
     ).toEqual({
@@ -216,6 +218,7 @@ describe('webrtc.protocol', () => {
       roomId: 'room-a',
       peerId: 'peer-a',
       token: 'token-1',
+      maxPeers: 2,
     });
 
     expect(

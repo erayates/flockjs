@@ -158,6 +158,7 @@ describe('WebRTCSignalingClient', () => {
       peerId: 'peer-a',
       relayUrl: 'ws://relay.local',
       relayAuth: async () => 'token-123',
+      maxPeers: 3,
       createWebSocket,
       onPeerJoined,
       onPeerLeft,
@@ -177,6 +178,7 @@ describe('WebRTCSignalingClient', () => {
       roomId: 'room-signaling',
       peerId: 'peer-a',
       token: 'token-123',
+      maxPeers: 3,
     });
 
     socket.emitMessage(
@@ -476,6 +478,48 @@ describe('WebRTCSignalingClient', () => {
         source: 'webrtc-signaling',
         kind: 'server-rejected',
         serverCode: 'FORBIDDEN',
+      },
+    });
+  });
+
+  it('maps ROOM_FULL server rejections to a recoverable flock error', async () => {
+    const sockets: MockWebSocket[] = [];
+    const client = new WebRTCSignalingClient({
+      roomId: 'room-full',
+      peerId: 'peer-a',
+      relayUrl: 'ws://relay.local',
+      createWebSocket: (url) => {
+        const socket = new MockWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      onPeerJoined: vi.fn(),
+      onPeerLeft: vi.fn(),
+      onSignal: vi.fn(),
+      onDisconnected: vi.fn(),
+    });
+
+    const connectPromise = client.connect();
+    await waitFor(() => sockets.length === 1);
+
+    const socket = sockets[0] as MockWebSocket;
+    socket.emitOpen();
+    socket.emitMessage(
+      JSON.stringify({
+        type: 'error',
+        code: 'ROOM_FULL',
+        message: 'Room is full.',
+      }),
+    );
+
+    await expect(connectPromise).rejects.toMatchObject({
+      code: 'ROOM_FULL',
+      recoverable: true,
+      message: 'Room is full.',
+      cause: {
+        source: 'webrtc-signaling',
+        kind: 'server-rejected',
+        serverCode: 'ROOM_FULL',
       },
     });
   });

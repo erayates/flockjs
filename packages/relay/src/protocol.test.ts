@@ -34,6 +34,7 @@ describe('relay protocol', () => {
           peerId: 'peer-a',
           token: 'token-1',
           protocol,
+          maxPeers: 2,
         }),
       ),
     ).toEqual({
@@ -42,6 +43,22 @@ describe('relay protocol', () => {
       peerId: 'peer-a',
       token: 'token-1',
       protocol,
+      maxPeers: 2,
+    });
+
+    expect(
+      parseRelayClientMessage(
+        JSON.stringify({
+          type: 'join',
+          roomId: 'room-a',
+          peerId: 'peer-a',
+          maxPeers: 0,
+        }),
+      ),
+    ).toEqual({
+      type: 'join',
+      roomId: 'room-a',
+      peerId: 'peer-a',
     });
 
     expect(

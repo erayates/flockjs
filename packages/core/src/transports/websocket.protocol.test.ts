@@ -22,6 +22,7 @@ describe('websocket.protocol', () => {
         peerId: 'peer-a',
         token: 'token-1',
         protocol,
+        maxPeers: 4,
       }),
     ).toBe(
       JSON.stringify({
@@ -30,6 +31,7 @@ describe('websocket.protocol', () => {
         peerId: 'peer-a',
         token: 'token-1',
         protocol,
+        maxPeers: 4,
       }),
     );
   });
@@ -123,6 +125,7 @@ describe('websocket.protocol', () => {
           roomId: 'room-a',
           peerId: 'peer-a',
           protocol,
+          maxPeers: 3,
         }),
       ),
     ).toEqual({
@@ -130,6 +133,7 @@ describe('websocket.protocol', () => {
       roomId: 'room-a',
       peerId: 'peer-a',
       protocol,
+      maxPeers: 3,
     });
 
     expect(

@@ -1,5 +1,6 @@
 import { createFlockError } from '../flock-error';
 import { env } from '../internal/env';
+import { normalizeMaxPeers } from '../internal/max-peers';
 import type { FlockError, RelayAuthToken } from '../types';
 import {
   parseSignalingServerMessage,
@@ -69,6 +70,7 @@ export interface WebRTCSignalingClientOptions {
   peerId: string;
   relayUrl: string;
   relayAuth?: RelayAuthToken;
+  maxPeers?: number;
   joinTimeoutMs?: number;
   createWebSocket?: WebSocketFactory;
   onPeerJoined(peerId: string): void;
@@ -162,6 +164,11 @@ async function resolveRelayAuthToken(
 }
 
 function toSignalingError(message: string, cause?: unknown): FlockError {
+  const failure = readWebRTCSignalingFailure(cause);
+  if (failure?.serverCode === 'ROOM_FULL') {
+    return createFlockError('ROOM_FULL', message, true, cause);
+  }
+
   return createFlockError('NETWORK_ERROR', message, false, cause);
 }
 
@@ -342,10 +349,12 @@ export class WebRTCSignalingClient {
       }, timeoutMs);
 
       const onOpen = (): void => {
+        const maxPeers = normalizeMaxPeers(this.options.maxPeers);
         const joinMessage: SignalingJoinMessage = {
           type: 'join',
           roomId: this.options.roomId,
           peerId: this.options.peerId,
+          ...(maxPeers !== undefined ? { maxPeers } : {}),
         };
 
         const payload = serializeSignalingMessage(
