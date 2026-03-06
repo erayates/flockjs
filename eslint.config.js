@@ -54,6 +54,12 @@ export default [
       '@typescript-eslint/no-unsafe-member-access': 'error',
       '@typescript-eslint/no-unsafe-call': 'error',
       '@typescript-eslint/no-unsafe-return': 'error',
+      '@typescript-eslint/consistent-type-assertions': [
+        'error',
+        {
+          assertionStyle: 'never',
+        },
+      ],
       '@typescript-eslint/no-unnecessary-condition': 'error',
       '@typescript-eslint/no-unnecessary-type-assertion': 'error',
       '@typescript-eslint/no-non-null-assertion': 'error',
@@ -76,6 +82,14 @@ export default [
       'no-new-func': 'error',
       'no-var': 'error',
       'no-console': 'error',
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "ThrowStatement > NewExpression[callee.name='Error']",
+          message:
+            'Use a typed error helper or an explicit CLI failure path instead of throw new Error().',
+        },
+      ],
       'prefer-const': [
         'error',
         {
@@ -100,14 +114,22 @@ export default [
       '@typescript-eslint/no-unnecessary-type-assertion': 'off',
       '@typescript-eslint/no-unnecessary-condition': 'off',
       '@typescript-eslint/require-await': 'off',
+      '@typescript-eslint/consistent-type-assertions': 'off',
       'local/no-inline-env-typeof-checks': 'off',
       'no-console': 'off',
+      'no-restricted-syntax': 'off',
     },
   },
   {
     files: ['packages/core/src/internal/env.ts'],
     rules: {
       'local/no-inline-env-typeof-checks': 'off',
+    },
+  },
+  {
+    files: ['packages/core/src/internal/typed-peer.ts'],
+    rules: {
+      '@typescript-eslint/consistent-type-assertions': 'off',
     },
   },
   eslintConfigPrettier,
