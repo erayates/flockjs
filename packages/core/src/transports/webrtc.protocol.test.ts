@@ -26,7 +26,7 @@ describe('webrtc.protocol', () => {
           type: 'joined',
           roomId: 'room-a',
           peerId: 'peer-a',
-          peers: ['peer-a', 'peer-b', 123],
+          peers: ['peer-a', { peerId: 'peer-b' }, 123],
         }),
       ),
     ).toEqual({

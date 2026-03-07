@@ -12,6 +12,18 @@ function readOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function readPeerDescriptorPeerId(value: unknown): string | null {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  return readString(value.peerId);
+}
+
 function readIceCandidate(value: unknown): RTCIceCandidateInit | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -157,7 +169,9 @@ export function parseSignalingServerMessage(payload: unknown): SignalingServerMe
     const roomId = readString(parsed.roomId);
     const peerId = readString(parsed.peerId);
     const peers = Array.isArray(parsed.peers)
-      ? parsed.peers.filter((item) => typeof item === 'string')
+      ? parsed.peers
+          .map((item) => readPeerDescriptorPeerId(item))
+          .filter((item): item is string => item !== null)
       : null;
     if (!roomId || !peerId || peers === null) {
       return null;

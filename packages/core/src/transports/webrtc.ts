@@ -289,9 +289,15 @@ export class WebRTCTransportAdapter<
         return;
       }
 
+      const candidate = toPlainCandidate(event.candidate);
+      const candidateText = candidate.candidate;
+      if (!candidateText || candidateText.length === 0) {
+        return;
+      }
+
       this.signalingClient.sendSignal({
         toPeerId: remotePeerId,
-        candidate: toPlainCandidate(event.candidate),
+        candidate,
       });
     };
 

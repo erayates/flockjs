@@ -7,6 +7,7 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "turbo run test --filter=./packages/*",
+    "test:integration": "pnpm --filter @flockjs/core build && playwright test --config playwright.config.ts",
     "test:watch": "turbo run test:watch --filter=./packages/* --parallel",
     "typecheck": "turbo run typecheck",
     "typecheck:root": "tsc --noEmit -p tsconfig.json",
@@ -24,6 +25,7 @@
     "clean": "turbo run clean"
   },
   "devDependencies": {
+    "@playwright/test": "^1.53.2",
     "@changesets/cli": "^2.30.0",
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",

@@ -47,6 +47,7 @@ interface EventTargetLike {
 }
 
 export interface WebSocketLike extends EventTargetLike {
+  binaryType?: 'blob' | 'arraybuffer';
   readonly readyState: number;
   send(payload: string | Uint8Array): void;
   close(code?: number, reason?: string): void;
@@ -98,6 +99,12 @@ function createRelayMessageError(message: string, serverCode: string): FlockErro
       serverCode,
     },
   );
+}
+
+function setBinaryTypeIfSupported(socket: WebSocketLike): void {
+  if (typeof socket.binaryType === 'string') {
+    socket.binaryType = 'arraybuffer';
+  }
 }
 
 function isOpen(socket: WebSocketLike): boolean {
@@ -261,6 +268,7 @@ export class WebSocketTransportAdapter<
   private async connectInternal(): Promise<void> {
     const relayAuthToken = await resolveRelayAuthToken(this.options.relayAuth);
     const socket = this.createWebSocket(this.relayUrl);
+    setBinaryTypeIfSupported(socket);
     this.socket = socket;
 
     const timeoutMs = DEFAULT_JOIN_TIMEOUT_MS;

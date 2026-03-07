@@ -303,6 +303,15 @@ describe('WebRTCTransportAdapter', () => {
       },
     });
 
+    const signalCountBeforeEmptyCandidate = signalingClient.sentSignals.length;
+    peerConnection.emitIceCandidate({
+      candidate: '',
+      sdpMid: '0',
+      sdpMLineIndex: 0,
+      usernameFragment: 'end-of-candidates',
+    } as unknown as RTCIceCandidate);
+    expect(signalingClient.sentSignals).toHaveLength(signalCountBeforeEmptyCandidate);
+
     await waitFor(() => dataChannel.sent.length > 0);
 
     const hello = parseEnvelope(dataChannel.sent[0] as string);
