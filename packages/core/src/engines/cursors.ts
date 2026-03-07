@@ -50,7 +50,7 @@ function getTouchList(value: unknown, key: 'touches' | 'changedTouches'): Pointe
     return [];
   }
 
-  const list = Reflect.get(value, key);
+  const list: unknown = Reflect.get(value, key);
   if (!Array.isArray(list)) {
     return [];
   }
@@ -280,9 +280,9 @@ export function createCursorEngine(
       return;
     }
 
-    mountedElement.removeEventListener?.('mousemove', mouseMoveListener);
-    mountedElement.removeEventListener?.('touchmove', touchMoveListener);
-    mountedElement.removeEventListener?.('touchstart', touchStartListener);
+    mountedElement.removeEventListener('mousemove', mouseMoveListener);
+    mountedElement.removeEventListener('touchmove', touchMoveListener);
+    mountedElement.removeEventListener('touchstart', touchStartListener);
   };
 
   const clearThrottleTimer = (): void => {
@@ -336,14 +336,14 @@ export function createCursorEngine(
     node.setAttribute(CURSOR_IDLE_ATTRIBUTE, String(position.idle));
     node.style.opacity = position.idle ? '0.6' : '1';
 
-    const marker = node.children[0] as HTMLElement | undefined;
-    const label = node.children[1] as HTMLElement | undefined;
+    const marker = node.firstElementChild;
+    const label = node.children.item(1);
 
-    if (marker) {
+    if (marker instanceof HTMLElement) {
       marker.style.background = position.color;
     }
 
-    if (label) {
+    if (label instanceof HTMLElement) {
       label.textContent = currentOptions.showName === false ? '' : position.name;
       label.style.display = currentOptions.showName === false ? 'none' : 'inline-block';
     }
@@ -353,13 +353,13 @@ export function createCursorEngine(
     renderSubscription?.();
     renderSubscription = null;
 
-    if (renderRoot && renderContainer?.contains?.(renderRoot)) {
+    if (renderRoot && renderContainer && renderContainer.contains(renderRoot)) {
       renderContainer.removeChild(renderRoot);
     } else {
-      renderRoot?.remove?.();
+      renderRoot?.remove();
     }
 
-    if (containerPositionMutated && renderContainer?.style) {
+    if (containerPositionMutated && renderContainer) {
       renderContainer.style.position = previousContainerPosition;
     }
 
@@ -375,10 +375,7 @@ export function createCursorEngine(
       return;
     }
 
-    const doc = renderRoot.ownerDocument ?? resolveDocument(mountedElement);
-    if (!doc) {
-      return;
-    }
+    const doc = renderRoot.ownerDocument;
 
     const seenUserIds = new Set<string>();
     for (const position of positions) {
@@ -402,7 +399,7 @@ export function createCursorEngine(
       if (renderRoot.contains(node)) {
         renderRoot.removeChild(node);
       } else {
-        node.remove?.();
+        node.remove();
       }
       renderedNodes.delete(userId);
     }
@@ -430,12 +427,10 @@ export function createCursorEngine(
       renderRoot.style.pointerEvents = 'none';
       renderRoot.style.zIndex = String(renderOptions.zIndex ?? 9999);
 
-      if (renderContainer.style) {
-        previousContainerPosition = renderContainer.style.position ?? '';
-        if (!previousContainerPosition || previousContainerPosition === 'static') {
-          renderContainer.style.position = 'relative';
-          containerPositionMutated = true;
-        }
+      previousContainerPosition = renderContainer.style.position;
+      if (!previousContainerPosition || previousContainerPosition === 'static') {
+        renderContainer.style.position = 'relative';
+        containerPositionMutated = true;
       }
 
       renderContainer.appendChild(renderRoot);
