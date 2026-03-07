@@ -49,6 +49,12 @@ interface AwarenessEngine {
 }
 ```
 
+Behavior notes:
+
+- `set()` merges into the local peer's current awareness object.
+- `subscribe()` emits awareness for other peers only and calls back immediately with the current remote snapshot.
+- `getAll()` returns the local peer plus remote peers that have published awareness.
+
 ## Events
 
 ```ts

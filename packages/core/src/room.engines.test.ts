@@ -262,16 +262,50 @@ describe('Room engine integration branches', () => {
     expect(roomFull).toHaveBeenCalled();
 
     const awarenessA = roomA.useAwareness();
+    awarenessA.set({
+      typing: true,
+      focus: 'editor-1',
+    });
     const awarenessSeen = vi.fn();
     awarenessA.subscribe(awarenessSeen);
+    expect(awarenessSeen).toHaveBeenLastCalledWith([]);
+    expect(awarenessA.getAll()).toEqual([
+      {
+        peerId: roomA.peerId,
+        typing: true,
+        focus: 'editor-1',
+      },
+    ]);
 
     const awarenessB = roomB.useAwareness();
-    awarenessB.set({ typing: true });
-    awarenessB.setTyping(true);
+    awarenessB.set({ typing: true, custom: 'drafting' });
     awarenessB.setFocus('input-1');
     awarenessB.setSelection({ from: 0, to: 1, elementId: 'input-1' });
 
     await waitFor(() => awarenessA.getAll().some((item) => item.peerId === roomB.peerId));
+    expect(awarenessSeen).toHaveBeenLastCalledWith([
+      {
+        peerId: roomB.peerId,
+        typing: true,
+        custom: 'drafting',
+        focus: 'input-1',
+        selection: { from: 0, to: 1, elementId: 'input-1' },
+      },
+    ]);
+    expect(awarenessA.getAll()).toEqual([
+      {
+        peerId: roomA.peerId,
+        typing: true,
+        focus: 'editor-1',
+      },
+      {
+        peerId: roomB.peerId,
+        typing: true,
+        custom: 'drafting',
+        focus: 'input-1',
+        selection: { from: 0, to: 1, elementId: 'input-1' },
+      },
+    ]);
 
     const cursorsA = roomA.useCursors();
     const cursorSeen = vi.fn();
@@ -316,6 +350,14 @@ describe('Room engine integration branches', () => {
     await roomB.disconnect();
     await waitFor(() => roomA.peerCount === 0);
     expect(roomEmpty).toHaveBeenCalled();
+    expect(awarenessSeen).toHaveBeenLastCalledWith([]);
+    expect(awarenessA.getAll()).toEqual([
+      {
+        peerId: roomA.peerId,
+        typing: true,
+        focus: 'editor-1',
+      },
+    ]);
 
     await roomA.disconnect();
 

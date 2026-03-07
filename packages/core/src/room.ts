@@ -415,11 +415,11 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
           this.notifyAwarenessSubscribers();
         },
         getAllAwareness: () => {
-          return Array.from(this.awarenessByPeer.values());
+          return this.getAwarenessSnapshot();
         },
         subscribeAwareness: (callback) => {
           this.awarenessSubscribers.add(callback);
-          callback(Array.from(this.awarenessByPeer.values()));
+          callback(this.getRemoteAwarenessSnapshot());
 
           return () => {
             this.awarenessSubscribers.delete(callback);
@@ -1063,8 +1063,18 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     }
   }
 
+  private getAwarenessSnapshot(): AwarenessState[] {
+    return Array.from(this.awarenessByPeer.values());
+  }
+
+  private getRemoteAwarenessSnapshot(): AwarenessState[] {
+    return this.getAwarenessSnapshot().filter((awareness) => {
+      return awareness.peerId !== this.peerId;
+    });
+  }
+
   private notifyAwarenessSubscribers(): void {
-    const snapshot = Array.from(this.awarenessByPeer.values());
+    const snapshot = this.getRemoteAwarenessSnapshot();
     for (const subscriber of this.awarenessSubscribers) {
       subscriber(snapshot);
     }
