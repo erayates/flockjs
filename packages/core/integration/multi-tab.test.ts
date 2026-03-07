@@ -55,6 +55,12 @@ interface CursorHarnessState {
     left: string;
     top: string;
     idle: string | null;
+    transition: string;
+    style: string | null;
+    markerTag: string | null;
+    markerStyle: string | null;
+    markerColor: string | null;
+    labelDisplay: string | null;
   }>;
 }
 
@@ -371,7 +377,7 @@ test.describe('multi-tab integration', () => {
     }
   });
 
-  test('syncs mouse and touch cursor updates and renders remote peer labels', async ({
+  test('syncs mouse and touch cursor updates, styles, and disconnect cleanup', async ({
     browser,
   }, testInfo) => {
     const context = await browser.newContext();
@@ -417,6 +423,11 @@ test.describe('multi-tab integration', () => {
       });
       await second.mountCursors({
         render: true,
+        renderOptions: {
+          style: 'default',
+          showName: true,
+          showIdle: true,
+        },
       });
 
       await first.dispatchCursorMove({
@@ -441,6 +452,36 @@ test.describe('multi-tab integration', () => {
           return (await second.getCursorState()).rendered[0]?.text ?? null;
         })
         .toContain('First');
+      await expect
+        .poll(async () => {
+          return (await second.getCursorState()).rendered[0]?.style ?? null;
+        })
+        .toBe('default');
+      await expect
+        .poll(async () => {
+          return (await second.getCursorState()).rendered[0]?.markerStyle ?? null;
+        })
+        .toBe('default');
+      await expect
+        .poll(async () => {
+          return (await second.getCursorState()).rendered[0]?.markerTag ?? null;
+        })
+        .toBe('svg');
+      await expect
+        .poll(async () => {
+          return (await second.getCursorState()).rendered[0]?.markerColor ?? null;
+        })
+        .toBe('#111111');
+      await expect
+        .poll(async () => {
+          return (await second.getCursorState()).rendered[0]?.transition.includes('left') ?? false;
+        })
+        .toBe(true);
+      await expect
+        .poll(async () => {
+          return (await second.getCursorState()).rendered[0]?.labelDisplay ?? null;
+        })
+        .toBe('inline-flex');
 
       await first.dispatchCursorMove({
         x: 0.75,
@@ -479,6 +520,28 @@ test.describe('multi-tab integration', () => {
           return Number.isFinite(parsed) ? Math.abs(parsed - 25) < 1 : false;
         })
         .toBe(true);
+
+      await first.disconnect();
+      await expect
+        .poll(
+          async () => {
+            return (await second.getCursorState()).rendered.length;
+          },
+          {
+            timeout: 1_000,
+          },
+        )
+        .toBe(0);
+      await expect
+        .poll(
+          async () => {
+            return (await second.getSnapshot()).peerCount;
+          },
+          {
+            timeout: 1_000,
+          },
+        )
+        .toBe(0);
 
       await first.unmountCursors();
       await second.unmountCursors();

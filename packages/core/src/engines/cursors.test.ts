@@ -20,6 +20,14 @@ class MockElement {
 
   public id = '';
 
+  public constructor(
+    ownerDocument: MockDocument,
+    public readonly tagName: string,
+    public readonly namespaceURI = 'http://www.w3.org/1999/xhtml',
+  ) {
+    this.ownerDocument = ownerDocument;
+  }
+
   private rect = {
     left: 0,
     top: 0,
@@ -29,19 +37,12 @@ class MockElement {
 
   private readonly listeners = new Map<string, Set<Listener>>();
 
-  public constructor(
-    ownerDocument: MockDocument,
-    public readonly tagName: string,
-  ) {
-    this.ownerDocument = ownerDocument;
-  }
-
   public setBoundingRect(rect: { left: number; top: number; width: number; height: number }): void {
     this.rect = rect;
   }
 
   public getBoundingClientRect(): DOMRect {
-    return {
+    const rect: DOMRect = {
       ...this.rect,
       bottom: this.rect.top + this.rect.height,
       right: this.rect.left + this.rect.width,
@@ -50,7 +51,9 @@ class MockElement {
       toJSON() {
         return { ...this };
       },
-    } as DOMRect;
+    };
+
+    return rect;
   }
 
   public addEventListener(type: string, listener: Listener): void {
@@ -133,6 +136,10 @@ class MockDocument {
     return new MockElement(this, tagName);
   }
 
+  public createElementNS(namespaceURI: string, tagName: string): MockElement {
+    return new MockElement(this, tagName, namespaceURI);
+  }
+
   public querySelector(selector: string): MockElement | null {
     if (!selector.startsWith('#')) {
       return null;
@@ -169,6 +176,42 @@ function createRemoteCursor(overrides: Partial<CursorPosition> = {}): CursorPosi
     idle: false,
     ...overrides,
   };
+}
+
+function getOverlayRoot(board: MockElement): MockElement {
+  const root = board.children[0];
+  if (!root) {
+    throw new Error('Expected an overlay root.');
+  }
+
+  return root;
+}
+
+function getCursorNode(board: MockElement): MockElement {
+  const node = getOverlayRoot(board).children[0];
+  if (!node) {
+    throw new Error('Expected a rendered cursor node.');
+  }
+
+  return node;
+}
+
+function getMarker(node: MockElement): MockElement {
+  const marker = node.children[0];
+  if (!marker) {
+    throw new Error('Expected a marker element.');
+  }
+
+  return marker;
+}
+
+function getLabel(node: MockElement): MockElement {
+  const label = node.children[1];
+  if (!label) {
+    throw new Error('Expected a label element.');
+  }
+
+  return label;
 }
 
 afterEach(() => {
@@ -379,7 +422,7 @@ describe('createCursorEngine', () => {
     engine.unmount();
   });
 
-  it('auto-renders remote cursors with labels and cleans up on unmount', () => {
+  it('renders the default style as an SVG arrow with a colored name label', () => {
     const positions = [createRemoteCursor()];
     const unsubscribe = vi.fn();
     let subscriptionCallback: ((positions: CursorPosition[]) => void) | null = null;
@@ -401,39 +444,187 @@ describe('createCursorEngine', () => {
     engine.mount(board as unknown as HTMLElement);
     engine.render({
       container: board as unknown as HTMLElement,
+      style: 'default',
       showName: true,
+      showIdle: true,
       zIndex: 42,
     });
 
+    const overlayRoot = getOverlayRoot(board);
+    const cursorNode = getCursorNode(board);
+    const marker = getMarker(cursorNode);
+    const label = getLabel(cursorNode);
+
     expect(board.children).toHaveLength(1);
-
-    const overlayRoot = board.children[0];
     expect(overlayRoot.style.zIndex).toBe('42');
-    expect(overlayRoot.children).toHaveLength(1);
-
-    const cursorNode = overlayRoot.children[0];
+    expect(cursorNode.getAttribute('data-flockjs-cursor-style')).toBe('default');
+    expect(cursorNode.style.position).toBe('absolute');
     expect(cursorNode.style.left).toBe('25%');
     expect(cursorNode.style.top).toBe('75%');
+    expect(cursorNode.style.transition).toContain('left');
     expect(cursorNode.getAttribute('data-idle')).toBe('false');
-    expect(cursorNode.children[1]?.textContent).toBe('Alice');
-
-    subscriptionCallback?.([
-      createRemoteCursor({
-        x: 0.5,
-        y: 0.5,
-        idle: true,
-      }),
-    ]);
-
-    expect(cursorNode.style.left).toBe('50%');
-    expect(cursorNode.style.top).toBe('50%');
-    expect(cursorNode.getAttribute('data-idle')).toBe('true');
+    expect(marker.tagName).toBe('svg');
+    expect(marker.getAttribute('data-flockjs-cursor-marker-style')).toBe('default');
+    expect(marker.getAttribute('data-flockjs-cursor-marker-color')).toBe('#111111');
+    expect(marker.children[0]?.tagName).toBe('path');
+    expect(label.textContent).toBe('Alice');
+    expect(label.style.backgroundColor).toBe('#111111');
 
     subscriptionCallback?.([]);
     expect(overlayRoot.children).toHaveLength(0);
 
     engine.unmount();
     expect(board.children).toHaveLength(0);
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('supports dot and pointer styles, unknown fallback, and repeated render updates', () => {
+    const positions = [createRemoteCursor()];
+    const unsubscribe = vi.fn();
+    const context = {
+      setSelfPosition: vi.fn(),
+      getPositions: vi.fn(() => positions),
+      subscribe: vi.fn(() => {
+        return unsubscribe;
+      }),
+    };
+
+    const doc = new MockDocument();
+    const board = doc.createElement('div');
+    doc.body.appendChild(board);
+
+    const engine = createCursorEngine(context);
+    engine.mount(board as unknown as HTMLElement);
+
+    engine.render({
+      container: board as unknown as HTMLElement,
+      style: 'dot',
+      showName: false,
+    });
+
+    let cursorNode = getCursorNode(board);
+    let marker = getMarker(cursorNode);
+    let label = getLabel(cursorNode);
+    expect(cursorNode.getAttribute('data-flockjs-cursor-style')).toBe('dot');
+    expect(marker.tagName).toBe('span');
+    expect(marker.getAttribute('data-flockjs-cursor-marker-style')).toBe('dot');
+    expect(marker.getAttribute('data-flockjs-cursor-marker-color')).toBe('#111111');
+    expect(label.style.display).toBe('none');
+    expect(context.subscribe).toHaveBeenCalledTimes(1);
+
+    engine.render({
+      style: 'pointer',
+      showName: true,
+    });
+
+    cursorNode = getCursorNode(board);
+    marker = getMarker(cursorNode);
+    label = getLabel(cursorNode);
+    expect(board.children).toHaveLength(1);
+    expect(cursorNode.getAttribute('data-flockjs-cursor-style')).toBe('pointer');
+    expect(marker.tagName).toBe('div');
+    expect(marker.getAttribute('data-flockjs-cursor-marker-style')).toBe('pointer');
+    expect(label.style.display).toBe('inline-flex');
+    expect(label.textContent).toBe('Alice');
+
+    engine.render({
+      style: 'laser',
+    });
+
+    cursorNode = getCursorNode(board);
+    marker = getMarker(cursorNode);
+    expect(cursorNode.getAttribute('data-flockjs-cursor-style')).toBe('default');
+    expect(marker.tagName).toBe('svg');
+    expect(marker.getAttribute('data-flockjs-cursor-marker-style')).toBe('default');
+
+    engine.unmount();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides idle peers when showIdle is false and restores them on movement', () => {
+    const unsubscribe = vi.fn();
+    let subscriptionCallback: ((positions: CursorPosition[]) => void) | null = null;
+    const context = {
+      setSelfPosition: vi.fn(),
+      getPositions: vi.fn(() => [createRemoteCursor()]),
+      subscribe: vi.fn((callback: (positions: CursorPosition[]) => void) => {
+        subscriptionCallback = callback;
+        return unsubscribe;
+      }),
+    };
+
+    const doc = new MockDocument();
+    const board = doc.createElement('div');
+    doc.body.appendChild(board);
+
+    const engine = createCursorEngine(context);
+    engine.mount(board as unknown as HTMLElement);
+    engine.render({
+      container: board as unknown as HTMLElement,
+      showIdle: false,
+    });
+
+    const overlayRoot = getOverlayRoot(board);
+    expect(overlayRoot.children).toHaveLength(1);
+
+    subscriptionCallback?.([
+      createRemoteCursor({
+        idle: true,
+      }),
+    ]);
+    expect(overlayRoot.children).toHaveLength(0);
+
+    subscriptionCallback?.([
+      createRemoteCursor({
+        x: 0.6,
+        y: 0.4,
+        idle: false,
+      }),
+    ]);
+
+    const cursorNode = getCursorNode(board);
+    expect(overlayRoot.children).toHaveLength(1);
+    expect(cursorNode.style.left).toBe('60%');
+    expect(cursorNode.style.top).toBe('40%');
+
+    engine.unmount();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps idle peers rendered when showIdle is true', () => {
+    const unsubscribe = vi.fn();
+    let subscriptionCallback: ((positions: CursorPosition[]) => void) | null = null;
+    const context = {
+      setSelfPosition: vi.fn(),
+      getPositions: vi.fn(() => [createRemoteCursor()]),
+      subscribe: vi.fn((callback: (positions: CursorPosition[]) => void) => {
+        subscriptionCallback = callback;
+        return unsubscribe;
+      }),
+    };
+
+    const doc = new MockDocument();
+    const board = doc.createElement('div');
+    doc.body.appendChild(board);
+
+    const engine = createCursorEngine(context);
+    engine.mount(board as unknown as HTMLElement);
+    engine.render({
+      container: board as unknown as HTMLElement,
+      showIdle: true,
+    });
+
+    subscriptionCallback?.([
+      createRemoteCursor({
+        idle: true,
+      }),
+    ]);
+
+    const cursorNode = getCursorNode(board);
+    expect(cursorNode.getAttribute('data-idle')).toBe('true');
+    expect(cursorNode.style.opacity).toBe('0.55');
+
+    engine.unmount();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 });

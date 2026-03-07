@@ -135,12 +135,20 @@ function createSyntheticTouchEvent(type, clientX, clientY) {
 function getRenderedCursorSnapshot() {
   const board = getBoardElement();
   return Array.from(board.querySelectorAll('[data-flockjs-peer-cursor]')).map((node) => {
+    const marker = node.querySelector('[data-flockjs-cursor-marker]');
+    const label = node.querySelector('[data-flockjs-cursor-label]');
     return {
       userId: node.getAttribute('data-user-id'),
       text: node.textContent ?? '',
       left: node.style.left,
       top: node.style.top,
       idle: node.getAttribute('data-idle'),
+      transition: node.style.transition,
+      style: node.getAttribute('data-flockjs-cursor-style'),
+      markerTag: marker?.tagName.toLowerCase() ?? null,
+      markerStyle: marker?.getAttribute('data-flockjs-cursor-marker-style') ?? null,
+      markerColor: marker?.getAttribute('data-flockjs-cursor-marker-color') ?? null,
+      labelDisplay: label instanceof HTMLElement ? label.style.display : null,
     };
   });
 }

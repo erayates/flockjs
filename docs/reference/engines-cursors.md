@@ -52,6 +52,21 @@ cursors.render({
 });
 ```
 
+Built-in renderer styles:
+
+- `default`: SVG arrow cursor with a name label.
+- `dot`: compact dot marker with an optional label.
+- `pointer`: compact pointer marker with an optional label.
+- Unknown style strings fall back to `default`.
+
+Renderer behavior:
+
+- Cursor nodes are absolutely positioned inside the render container.
+- `showName === false` hides the built-in name label.
+- `showIdle === false` hides idle peers until they move again.
+- `showIdle !== false` keeps idle peers rendered and marks them idle in the DOM.
+- Built-in cursor movement uses CSS transitions for smooth interpolation.
+
 ## Custom Renderer Pattern
 
 ```ts

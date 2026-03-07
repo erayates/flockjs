@@ -8,10 +8,20 @@ import type {
 
 const DEFAULT_THROTTLE_MS = 32;
 const DEFAULT_IDLE_AFTER_MS = 3_000;
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const CURSOR_ROOT_ATTRIBUTE = 'data-flockjs-cursor-root';
 const CURSOR_NODE_ATTRIBUTE = 'data-flockjs-peer-cursor';
 const CURSOR_USER_ATTRIBUTE = 'data-user-id';
 const CURSOR_IDLE_ATTRIBUTE = 'data-idle';
+const CURSOR_STYLE_ATTRIBUTE = 'data-flockjs-cursor-style';
+const CURSOR_MARKER_ATTRIBUTE = 'data-flockjs-cursor-marker';
+const CURSOR_MARKER_STYLE_ATTRIBUTE = 'data-flockjs-cursor-marker-style';
+const CURSOR_MARKER_COLOR_ATTRIBUTE = 'data-flockjs-cursor-marker-color';
+const CURSOR_LABEL_ATTRIBUTE = 'data-flockjs-cursor-label';
+const CURSOR_TRANSITION = 'left 120ms linear, top 120ms linear, opacity 160ms ease';
+const DEFAULT_CURSOR_COLOR = '#111827';
+
+type BuiltInCursorStyle = 'default' | 'dot' | 'pointer';
 
 interface CursorEngineContext {
   setSelfPosition(position: Partial<CursorPosition>): void;
@@ -22,6 +32,13 @@ interface CursorEngineContext {
 interface PointerPoint {
   clientX: number;
   clientY: number;
+}
+
+interface BuiltInCursorRenderer {
+  gap: string;
+  transform: string;
+  createMarker(doc: Document): Element;
+  updateMarker(marker: Element, position: CursorPosition): void;
 }
 
 function clamp(value: number): number {
@@ -108,6 +125,163 @@ function resolveRenderContainer(
   }
 
   return mountedElement;
+}
+
+function resolveCursorStyle(style: CursorRenderOptions['style']): BuiltInCursorStyle {
+  if (style === 'dot' || style === 'pointer') {
+    return style;
+  }
+
+  return 'default';
+}
+
+function getChildElements(parent: Element): Element[] {
+  return Array.from(parent.children);
+}
+
+function getChildElement(parent: Element, index: number): Element | null {
+  return getChildElements(parent)[index] ?? null;
+}
+
+function clearElementChildren(parent: Element): void {
+  for (const child of getChildElements(parent)) {
+    parent.removeChild(child);
+  }
+}
+
+function setStyleValue(target: unknown, property: string, value: string): void {
+  if (typeof target !== 'object' || target === null) {
+    return;
+  }
+
+  const style: unknown = Reflect.get(target, 'style');
+  if (typeof style !== 'object' || style === null) {
+    return;
+  }
+
+  Reflect.set(style, property, value);
+}
+
+function setTextValue(target: unknown, value: string): void {
+  if (typeof target !== 'object' || target === null) {
+    return;
+  }
+
+  Reflect.set(target, 'textContent', value);
+}
+
+function createSvgElement(doc: Document, tagName: string): Element {
+  return doc.createElementNS(SVG_NAMESPACE, tagName);
+}
+
+function createArrowMarker(doc: Document): Element {
+  const svg = createSvgElement(doc, 'svg');
+  svg.setAttribute(CURSOR_MARKER_ATTRIBUTE, 'true');
+  svg.setAttribute(CURSOR_MARKER_STYLE_ATTRIBUTE, 'default');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '20');
+  svg.setAttribute('height', '24');
+  svg.setAttribute('aria-hidden', 'true');
+  setStyleValue(svg, 'display', 'block');
+
+  const path = createSvgElement(doc, 'path');
+  path.setAttribute('d', 'M2 2L18 12L10.5 13.5L14 22L9 23L5.5 15L1.5 19L2 2Z');
+  path.setAttribute('fill', 'currentColor');
+  svg.appendChild(path);
+
+  return svg;
+}
+
+function createDotMarker(doc: Document): Element {
+  const marker = doc.createElement('span');
+  marker.setAttribute(CURSOR_MARKER_ATTRIBUTE, 'true');
+  marker.setAttribute(CURSOR_MARKER_STYLE_ATTRIBUTE, 'dot');
+  setStyleValue(marker, 'display', 'inline-block');
+  setStyleValue(marker, 'width', '10px');
+  setStyleValue(marker, 'height', '10px');
+  setStyleValue(marker, 'borderRadius', '9999px');
+  setStyleValue(marker, 'boxShadow', '0 0 0 2px rgba(255,255,255,0.9)');
+  setStyleValue(marker, 'flex', '0 0 auto');
+  return marker;
+}
+
+function createPointerMarker(doc: Document): Element {
+  const marker = doc.createElement('div');
+  marker.setAttribute(CURSOR_MARKER_ATTRIBUTE, 'true');
+  marker.setAttribute(CURSOR_MARKER_STYLE_ATTRIBUTE, 'pointer');
+  setStyleValue(marker, 'display', 'inline-block');
+  setStyleValue(marker, 'width', '12px');
+  setStyleValue(marker, 'height', '12px');
+  setStyleValue(marker, 'borderRadius', '9999px 9999px 9999px 0');
+  setStyleValue(marker, 'boxShadow', '0 0 0 2px rgba(255,255,255,0.9)');
+  setStyleValue(marker, 'transform', 'rotate(-45deg)');
+  setStyleValue(marker, 'flex', '0 0 auto');
+  return marker;
+}
+
+function updateSvgMarkerColor(marker: Element, color: string): void {
+  marker.setAttribute(CURSOR_MARKER_COLOR_ATTRIBUTE, color);
+  setStyleValue(marker, 'color', color);
+}
+
+function updateBlockMarkerColor(marker: Element, color: string): void {
+  marker.setAttribute(CURSOR_MARKER_COLOR_ATTRIBUTE, color);
+  setStyleValue(marker, 'backgroundColor', color);
+}
+
+const BUILT_IN_RENDERERS: Record<BuiltInCursorStyle, BuiltInCursorRenderer> = {
+  default: {
+    gap: '8px',
+    transform: 'translate(-18%, -14%)',
+    createMarker: createArrowMarker,
+    updateMarker(marker, position) {
+      updateSvgMarkerColor(marker, position.color || DEFAULT_CURSOR_COLOR);
+    },
+  },
+  dot: {
+    gap: '8px',
+    transform: 'translate(-50%, -50%)',
+    createMarker: createDotMarker,
+    updateMarker(marker, position) {
+      updateBlockMarkerColor(marker, position.color || DEFAULT_CURSOR_COLOR);
+    },
+  },
+  pointer: {
+    gap: '8px',
+    transform: 'translate(-28%, -24%)',
+    createMarker: createPointerMarker,
+    updateMarker(marker, position) {
+      updateBlockMarkerColor(marker, position.color || DEFAULT_CURSOR_COLOR);
+    },
+  },
+};
+
+function createLabelElement(doc: Document): Element {
+  const label = doc.createElement('span');
+  label.setAttribute(CURSOR_LABEL_ATTRIBUTE, 'true');
+  setStyleValue(label, 'display', 'inline-flex');
+  setStyleValue(label, 'alignItems', 'center');
+  setStyleValue(label, 'padding', '3px 8px');
+  setStyleValue(label, 'borderRadius', '9999px');
+  setStyleValue(label, 'fontFamily', 'ui-sans-serif, system-ui, sans-serif');
+  setStyleValue(label, 'fontSize', '12px');
+  setStyleValue(label, 'fontWeight', '600');
+  setStyleValue(label, 'lineHeight', '1');
+  setStyleValue(label, 'whiteSpace', 'nowrap');
+  setStyleValue(label, 'color', '#ffffff');
+  setStyleValue(label, 'boxShadow', '0 1px 2px rgba(15, 23, 42, 0.2)');
+  return label;
+}
+
+function getRenderablePositions(
+  positions: CursorPosition[],
+  options: CursorRenderOptions,
+): CursorPosition[] {
+  if (options.showIdle === false) {
+    return positions.filter((position) => position.idle !== true);
+  }
+
+  return positions;
 }
 
 export function createCursorEngine(
@@ -280,6 +454,10 @@ export function createCursorEngine(
       return;
     }
 
+    if (typeof Reflect.get(mountedElement, 'removeEventListener') !== 'function') {
+      return;
+    }
+
     mountedElement.removeEventListener('mousemove', mouseMoveListener);
     mountedElement.removeEventListener('touchmove', touchMoveListener);
     mountedElement.removeEventListener('touchstart', touchStartListener);
@@ -295,35 +473,23 @@ export function createCursorEngine(
     pendingPosition = null;
   };
 
-  const createCursorNode = (doc: Document, position: CursorPosition): HTMLElement => {
-    const node = doc.createElement('div');
-    node.setAttribute(CURSOR_NODE_ATTRIBUTE, 'true');
-    node.setAttribute(CURSOR_USER_ATTRIBUTE, position.userId);
-    node.style.position = 'absolute';
-    node.style.transform = 'translate(-50%, -50%)';
-    node.style.pointerEvents = 'none';
-    node.style.display = 'flex';
-    node.style.alignItems = 'center';
-    node.style.gap = '6px';
-    node.style.fontFamily = 'ui-sans-serif, system-ui, sans-serif';
-    node.style.fontSize = '12px';
-    node.style.lineHeight = '1';
-    node.style.whiteSpace = 'nowrap';
+  const ensureCursorNodeContents = (
+    node: HTMLElement,
+    doc: Document,
+    style: BuiltInCursorStyle,
+  ): void => {
+    if (node.getAttribute(CURSOR_STYLE_ATTRIBUTE) === style) {
+      const marker = getChildElement(node, 0);
+      const label = getChildElement(node, 1);
+      if (marker && label) {
+        return;
+      }
+    }
 
-    const marker = doc.createElement('span');
-    marker.style.display = 'inline-block';
-    marker.style.width = '10px';
-    marker.style.height = '10px';
-    marker.style.borderRadius = '9999px';
-    marker.style.boxShadow = '0 0 0 2px rgba(255,255,255,0.9)';
-    marker.style.flex = '0 0 auto';
-
-    const label = doc.createElement('span');
-
-    node.appendChild(marker);
-    node.appendChild(label);
-    updateCursorNode(node, position, renderOptions);
-    return node;
+    clearElementChildren(node);
+    node.setAttribute(CURSOR_STYLE_ATTRIBUTE, style);
+    node.appendChild(BUILT_IN_RENDERERS[style].createMarker(doc));
+    node.appendChild(createLabelElement(doc));
   };
 
   const updateCursorNode = (
@@ -331,21 +497,38 @@ export function createCursorEngine(
     position: CursorPosition,
     currentOptions: CursorRenderOptions,
   ): void => {
+    const doc = node.ownerDocument;
+    const style = resolveCursorStyle(currentOptions.style);
+    const renderer = BUILT_IN_RENDERERS[style];
+    ensureCursorNodeContents(node, doc, style);
+
+    node.style.position = 'absolute';
     node.style.left = `${position.x * 100}%`;
     node.style.top = `${position.y * 100}%`;
+    node.style.transform = renderer.transform;
+    node.style.transition = CURSOR_TRANSITION;
+    node.style.pointerEvents = 'none';
+    node.style.display = 'inline-flex';
+    node.style.alignItems = 'center';
+    node.style.gap = currentOptions.showName === false ? '0' : renderer.gap;
+    node.style.opacity = position.idle ? '0.55' : '1';
+    node.style.willChange = 'left, top, opacity';
     node.setAttribute(CURSOR_IDLE_ATTRIBUTE, String(position.idle));
-    node.style.opacity = position.idle ? '0.6' : '1';
 
-    const marker = node.firstElementChild;
-    const label = node.children.item(1);
-
-    if (marker instanceof HTMLElement) {
-      marker.style.background = position.color;
+    const marker = getChildElement(node, 0);
+    const label = getChildElement(node, 1);
+    if (marker) {
+      renderer.updateMarker(marker, {
+        ...position,
+        color: position.color || DEFAULT_CURSOR_COLOR,
+      });
     }
 
-    if (label instanceof HTMLElement) {
-      label.textContent = currentOptions.showName === false ? '' : position.name;
-      label.style.display = currentOptions.showName === false ? 'none' : 'inline-block';
+    if (label) {
+      const labelText = currentOptions.showName === false ? '' : position.name;
+      setTextValue(label, labelText);
+      setStyleValue(label, 'display', currentOptions.showName === false ? 'none' : 'inline-flex');
+      setStyleValue(label, 'backgroundColor', position.color || DEFAULT_CURSOR_COLOR);
     }
   };
 
@@ -376,9 +559,10 @@ export function createCursorEngine(
     }
 
     const doc = renderRoot.ownerDocument;
-
+    const renderablePositions = getRenderablePositions(positions, renderOptions);
     const seenUserIds = new Set<string>();
-    for (const position of positions) {
+
+    for (const position of renderablePositions) {
       seenUserIds.add(position.userId);
       const existing = renderedNodes.get(position.userId);
       if (existing) {
@@ -386,7 +570,10 @@ export function createCursorEngine(
         continue;
       }
 
-      const created = createCursorNode(doc, position);
+      const created = doc.createElement('div');
+      created.setAttribute(CURSOR_NODE_ATTRIBUTE, 'true');
+      created.setAttribute(CURSOR_USER_ATTRIBUTE, position.userId);
+      updateCursorNode(created, position, renderOptions);
       renderedNodes.set(position.userId, created);
       renderRoot.appendChild(created);
     }
@@ -425,6 +612,7 @@ export function createCursorEngine(
       renderRoot.style.position = 'absolute';
       renderRoot.style.inset = '0';
       renderRoot.style.pointerEvents = 'none';
+      renderRoot.style.overflow = 'hidden';
       renderRoot.style.zIndex = String(renderOptions.zIndex ?? 9999);
 
       previousContainerPosition = renderContainer.style.position;
