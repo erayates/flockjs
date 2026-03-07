@@ -276,11 +276,16 @@ describe('Room engine integration branches', () => {
     const cursorsA = roomA.useCursors();
     const cursorSeen = vi.fn();
     cursorsA.subscribe(cursorSeen);
+    const cursorsB = roomB.useCursors();
+    const localCursorSeen = vi.fn();
+    cursorsB.subscribe(localCursorSeen);
 
-    roomB.useCursors().setPosition({ x: 0.25, y: 0.75 });
+    cursorsB.setPosition({ x: 0.25, y: 0.75 });
     await waitFor(() =>
       cursorsA.getPositions().some((position) => position.userId === roomB.peerId),
     );
+    expect(cursorsB.getPositions()).toEqual([]);
+    expect(localCursorSeen).toHaveBeenLastCalledWith([]);
 
     const state = roomA.useState({
       initialValue: { count: 0 },

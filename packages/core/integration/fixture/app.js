@@ -15,10 +15,13 @@ const ROOM_EVENT_NAMES = [
 const state = {
   room: null,
   eventEngine: null,
+  cursorEngine: null,
   roomEventUnsubscribes: [],
   customEventUnsubscribes: [],
+  cursorUnsubscribe: null,
   roomEvents: [],
   customEvents: [],
+  cursorPositions: [],
   rtc: {
     available: typeof RTCPeerConnection === 'function',
     peerConnectionsCreated: 0,
@@ -81,15 +84,65 @@ function clearSubscriptions() {
     unsubscribe();
   }
 
+  state.cursorUnsubscribe?.();
+  state.cursorUnsubscribe = null;
+
   state.roomEventUnsubscribes = [];
   state.customEventUnsubscribes = [];
 }
 
 function resetState() {
   clearSubscriptions();
+  state.cursorEngine?.unmount();
   state.roomEvents = [];
   state.customEvents = [];
+  state.cursorPositions = [];
   state.eventEngine = null;
+  state.cursorEngine = null;
+}
+
+function getBoardElement() {
+  const board = document.getElementById('board');
+  if (!(board instanceof HTMLElement)) {
+    throw new Error('Cursor board element is not available.');
+  }
+
+  return board;
+}
+
+function createSyntheticTouchEvent(type, clientX, clientY) {
+  const event = new Event(type, {
+    bubbles: true,
+    cancelable: true,
+  });
+  const touchPoint = {
+    clientX,
+    clientY,
+  };
+
+  Object.defineProperty(event, 'touches', {
+    configurable: true,
+    value: [touchPoint],
+  });
+  Object.defineProperty(event, 'changedTouches', {
+    configurable: true,
+    value: [touchPoint],
+  });
+
+  return event;
+}
+
+function getRenderedCursorSnapshot() {
+  const board = getBoardElement();
+  return Array.from(board.querySelectorAll('[data-flockjs-peer-cursor]')).map((node) => {
+    return {
+      userId: node.getAttribute('data-user-id'),
+      text: node.textContent ?? '',
+      left: node.style.left,
+      top: node.style.top,
+      idle: node.getAttribute('data-idle'),
+    };
+  });
 }
 
 function instrumentRtcChannel(channel) {
@@ -194,6 +247,56 @@ window.__flockjsIntegration = {
     state.eventEngine.emitTo(peerId, name, payload);
   },
 
+  mountCursors(config = {}) {
+    if (!state.room) {
+      throw new Error('Room has not been initialized.');
+    }
+
+    const board = getBoardElement();
+    state.cursorEngine = state.room.useCursors(config.options ?? {});
+    state.cursorEngine.mount(board);
+    state.cursorUnsubscribe?.();
+    state.cursorUnsubscribe = state.cursorEngine.subscribe((positions) => {
+      state.cursorPositions = snapshotValue(positions);
+    });
+
+    if (config.render !== false) {
+      state.cursorEngine.render({
+        container: board,
+        showName: true,
+        ...(config.renderOptions ?? {}),
+      });
+    }
+  },
+
+  unmountCursors() {
+    state.cursorUnsubscribe?.();
+    state.cursorUnsubscribe = null;
+    state.cursorPositions = [];
+    state.cursorEngine?.unmount();
+    state.cursorEngine = null;
+  },
+
+  dispatchCursorMove({ x, y, kind = 'mouse' }) {
+    const board = getBoardElement();
+    const rect = board.getBoundingClientRect();
+    const clientX = rect.left + rect.width * x;
+    const clientY = rect.top + rect.height * y;
+
+    if (kind === 'touchstart' || kind === 'touchmove') {
+      board.dispatchEvent(createSyntheticTouchEvent(kind, clientX, clientY));
+      return;
+    }
+
+    board.dispatchEvent(
+      new MouseEvent('mousemove', {
+        bubbles: true,
+        clientX,
+        clientY,
+      }),
+    );
+  },
+
   getSnapshot() {
     return {
       peerId: state.room ? state.room.peerId : null,
@@ -206,6 +309,13 @@ window.__flockjsIntegration = {
         ...state.rtc,
         dataChannelOpened: state.rtc.dataChannelsOpened > 0,
       },
+    };
+  },
+
+  getCursorState() {
+    return {
+      positions: snapshotValue(state.cursorPositions),
+      rendered: snapshotValue(getRenderedCursorSnapshot()),
     };
   },
 

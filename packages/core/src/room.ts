@@ -358,20 +358,30 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   public useCursors(options?: CursorOptions): CursorEngine {
     if (!this.cursorEngineInstance) {
+      const getRemoteCursorPositions = (): CursorPosition[] => {
+        return Array.from(this.cursorPositions.values()).filter((position) => {
+          return position.userId !== this.peerId;
+        });
+      };
+
       this.cursorEngineInstance = createCursorEngine(
         {
           setSelfPosition: (position) => {
             this.setSelfCursorPosition(position);
           },
           getPositions: () => {
-            return Array.from(this.cursorPositions.values());
+            return getRemoteCursorPositions();
           },
           subscribe: (callback) => {
-            this.cursorSubscribers.add(callback);
-            callback(Array.from(this.cursorPositions.values()));
+            const wrappedCallback = (): void => {
+              callback(getRemoteCursorPositions());
+            };
+
+            this.cursorSubscribers.add(wrappedCallback);
+            wrappedCallback();
 
             return () => {
-              this.cursorSubscribers.delete(callback);
+              this.cursorSubscribers.delete(wrappedCallback);
             };
           },
         },

@@ -38,13 +38,41 @@ interface HarnessSnapshot {
   };
 }
 
+interface CursorHarnessState {
+  positions: Array<{
+    userId: string;
+    name: string;
+    color: string;
+    x: number;
+    y: number;
+    xAbsolute: number;
+    yAbsolute: number;
+    idle: boolean;
+  }>;
+  rendered: Array<{
+    userId: string | null;
+    text: string;
+    left: string;
+    top: string;
+    idle: string | null;
+  }>;
+}
+
 interface PageHarnessApi {
   initRoom(config: HarnessInitConfig): Promise<void>;
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   emit(input: { name: string; payload: unknown }): void;
   emitTo(input: { peerId: string; name: string; payload: unknown }): void;
+  mountCursors(config?: {
+    render?: boolean;
+    options?: Record<string, unknown>;
+    renderOptions?: Record<string, unknown>;
+  }): void;
+  unmountCursors(): void;
+  dispatchCursorMove(input: { x: number; y: number; kind?: 'mouse' | 'touchstart' | 'touchmove' }): void;
   getSnapshot(): HarnessSnapshot;
+  getCursorState(): CursorHarnessState;
   getEvents(): HarnessEventRecord[];
   waitForEvent(input: {
     kind: 'room' | 'custom';
@@ -151,6 +179,38 @@ class IntegrationPage {
   public async getSnapshot(): Promise<HarnessSnapshot> {
     return this.page.evaluate(() => {
       return window.__flockjsIntegration.getSnapshot();
+    });
+  }
+
+  public async mountCursors(config?: {
+    render?: boolean;
+    options?: Record<string, unknown>;
+    renderOptions?: Record<string, unknown>;
+  }): Promise<void> {
+    await this.page.evaluate((value) => {
+      window.__flockjsIntegration.mountCursors(value);
+    }, config);
+  }
+
+  public async unmountCursors(): Promise<void> {
+    await this.page.evaluate(() => {
+      window.__flockjsIntegration.unmountCursors();
+    });
+  }
+
+  public async dispatchCursorMove(input: {
+    x: number;
+    y: number;
+    kind?: 'mouse' | 'touchstart' | 'touchmove';
+  }): Promise<void> {
+    await this.page.evaluate((value) => {
+      window.__flockjsIntegration.dispatchCursorMove(value);
+    }, input);
+  }
+
+  public async getCursorState(): Promise<CursorHarnessState> {
+    return this.page.evaluate(() => {
+      return window.__flockjsIntegration.getCursorState();
     });
   }
 
@@ -306,6 +366,122 @@ test.describe('multi-tab integration', () => {
           return (await first.getSnapshot()).peerCount;
         })
         .toBe(0);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('syncs mouse and touch cursor updates and renders remote peer labels', async ({
+    browser,
+  }, testInfo) => {
+    const context = await browser.newContext();
+    const roomId = createRoomId(testInfo, 'cursor-broadcast');
+    const first = await initializeHarnessPage(context, {
+      roomId,
+      options: {
+        transport: 'broadcast',
+        presence: {
+          name: 'First',
+          color: '#111111',
+        },
+      },
+    });
+    const second = await initializeHarnessPage(context, {
+      roomId,
+      options: {
+        transport: 'broadcast',
+        presence: {
+          name: 'Second',
+          color: '#222222',
+        },
+      },
+    });
+
+    try {
+      await first.connect();
+      await second.connect();
+
+      await expect
+        .poll(async () => {
+          return (await first.getSnapshot()).peerCount;
+        })
+        .toBe(1);
+      await expect
+        .poll(async () => {
+          return (await second.getSnapshot()).peerCount;
+        })
+        .toBe(1);
+
+      await first.mountCursors({
+        render: false,
+      });
+      await second.mountCursors({
+        render: true,
+      });
+
+      await first.dispatchCursorMove({
+        x: 0.25,
+        y: 0.5,
+      });
+
+      await expect
+        .poll(async () => {
+          const value = (await second.getCursorState()).positions[0]?.x;
+          return typeof value === 'number' ? Math.abs(value - 0.25) < 0.01 : false;
+        })
+        .toBe(true);
+      await expect
+        .poll(async () => {
+          const value = (await second.getCursorState()).positions[0]?.y;
+          return typeof value === 'number' ? Math.abs(value - 0.5) < 0.01 : false;
+        })
+        .toBe(true);
+      await expect
+        .poll(async () => {
+          return (await second.getCursorState()).rendered[0]?.text ?? null;
+        })
+        .toContain('First');
+
+      await first.dispatchCursorMove({
+        x: 0.75,
+        y: 0.25,
+        kind: 'touchstart',
+      });
+      await first.dispatchCursorMove({
+        x: 0.75,
+        y: 0.25,
+        kind: 'touchmove',
+      });
+
+      await expect
+        .poll(async () => {
+          const value = (await second.getCursorState()).positions[0]?.x;
+          return typeof value === 'number' ? Math.abs(value - 0.75) < 0.01 : false;
+        })
+        .toBe(true);
+      await expect
+        .poll(async () => {
+          const value = (await second.getCursorState()).positions[0]?.y;
+          return typeof value === 'number' ? Math.abs(value - 0.25) < 0.01 : false;
+        })
+        .toBe(true);
+      await expect
+        .poll(async () => {
+          const value = (await second.getCursorState()).rendered[0]?.left;
+          const parsed = value ? Number.parseFloat(value) : Number.NaN;
+          return Number.isFinite(parsed) ? Math.abs(parsed - 75) < 1 : false;
+        })
+        .toBe(true);
+      await expect
+        .poll(async () => {
+          const value = (await second.getCursorState()).rendered[0]?.top;
+          const parsed = value ? Number.parseFloat(value) : Number.NaN;
+          return Number.isFinite(parsed) ? Math.abs(parsed - 25) < 1 : false;
+        })
+        .toBe(true);
+
+      await first.unmountCursors();
+      await second.unmountCursors();
     } finally {
       await context.close();
     }

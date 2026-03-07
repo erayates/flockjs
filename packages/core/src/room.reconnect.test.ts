@@ -134,6 +134,7 @@ describe('Room auto reconnect', () => {
     awareness.setTyping(true);
     cursors.setPosition({ x: 0.25, y: 0.75 });
     state.set({ count: 2 });
+    expect(cursors.getPositions()).toEqual([]);
 
     await room.connect();
 
