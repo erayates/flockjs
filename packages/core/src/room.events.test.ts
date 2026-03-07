@@ -363,7 +363,7 @@ describe('Room events', () => {
     }
   });
 
-  it('emits and receives room events via useEvents()', async () => {
+  it('emits transient room events with default remote-only loopback semantics', async () => {
     const roomA = createRoom<{ name: string }>('room-events-engine', {
       transport: 'broadcast',
       presence: { name: 'Alice' },
@@ -372,37 +372,85 @@ describe('Room events', () => {
       transport: 'broadcast',
       presence: { name: 'Bob' },
     });
+    const roomC = createRoom<{ name: string }>('room-events-engine', {
+      transport: 'broadcast',
+      presence: { name: 'Cara' },
+    });
+    const roomD = createRoom<{ name: string }>('room-events-engine', {
+      transport: 'broadcast',
+      presence: { name: 'Dana' },
+    });
 
     await roomA.connect();
     await roomB.connect();
-    await waitFor(() => roomA.peerCount === 1 && roomB.peerCount === 1);
+    await roomC.connect();
+    await waitFor(() => roomA.peerCount === 2 && roomB.peerCount === 2 && roomC.peerCount === 2);
 
     const eventsA = roomA.useEvents();
     const eventsB = roomB.useEvents();
+    const eventsC = roomC.useEvents();
 
-    const onReaction = vi.fn();
-    const offReaction = eventsA.on('reaction', onReaction);
+    const onReactionA = vi.fn();
+    const onReactionB = vi.fn();
+    const onReactionC = vi.fn();
+    const onWhisperA = vi.fn();
+    const onWhisperC = vi.fn();
+
+    eventsA.on('reaction', onReactionA);
+    eventsB.on('reaction', onReactionB);
+    eventsC.on('reaction', onReactionC);
+    eventsA.on('whisper', onWhisperA);
+    eventsC.on('whisper', onWhisperC);
 
     eventsB.emit('reaction', { emoji: '🔥' });
-    await waitFor(() => onReaction.mock.calls.length === 1);
+    await waitFor(() => onReactionA.mock.calls.length === 1 && onReactionC.mock.calls.length === 1);
 
-    expect(onReaction).toHaveBeenCalledWith(
+    expect(onReactionA).toHaveBeenCalledWith(
       { emoji: '🔥' },
       expect.objectContaining({
         id: roomB.peerId,
         name: 'Bob',
       }),
     );
-
-    const onWhisper = vi.fn();
-    const offWhisper = eventsA.on('whisper', onWhisper);
+    expect(onReactionC).toHaveBeenCalledWith(
+      { emoji: '🔥' },
+      expect.objectContaining({
+        id: roomB.peerId,
+        name: 'Bob',
+      }),
+    );
+    expect(onReactionB).toHaveBeenCalledTimes(0);
 
     eventsB.emitTo(roomA.peerId, 'whisper', { text: 'hello' });
-    await waitFor(() => onWhisper.mock.calls.length === 1);
+    await waitFor(() => onWhisperA.mock.calls.length === 1);
+    expect(onWhisperA).toHaveBeenCalledWith(
+      { text: 'hello' },
+      expect.objectContaining({
+        id: roomB.peerId,
+        name: 'Bob',
+      }),
+    );
+    expect(onWhisperC).toHaveBeenCalledTimes(0);
 
-    offReaction();
-    offWhisper();
+    eventsA.off('reaction', onReactionA);
+    eventsB.emit('reaction', { emoji: '✨' });
+    await waitFor(() => onReactionC.mock.calls.length === 2);
+    expect(onReactionA).toHaveBeenCalledTimes(1);
+    expect(onReactionB).toHaveBeenCalledTimes(0);
+
+    await roomD.connect();
+    await waitFor(() => roomA.peerCount === 3 && roomB.peerCount === 3 && roomC.peerCount === 3);
+
+    const eventsD = roomD.useEvents();
+    const onLateReaction = vi.fn();
+    eventsD.on('reaction', onLateReaction);
+
+    await wait(20);
+    expect(onLateReaction).toHaveBeenCalledTimes(0);
+
     await roomA.disconnect();
     await roomB.disconnect();
+    await roomC.disconnect();
+    await roomD.disconnect();
   });
 });

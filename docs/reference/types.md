@@ -95,6 +95,11 @@ export interface EventOptions {
 }
 ```
 
+Event option notes:
+
+- `loopback` defaults to `false`.
+- `reliable` remains transport-defined and does not change the public event API contract.
+
 ## Change Discipline
 
 - Keep this file synchronized with public API docs.

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createAwarenessEngine } from './engines/awareness';
 import { createCursorEngine } from './engines/cursors';
+import { createEventEngine } from './engines/events';
 import { createPresenceEngine } from './engines/presence';
 import { createStateEngine } from './engines/state';
 import { createRoom } from './index';
@@ -93,7 +94,7 @@ describe('Engine helpers and transport adapters', () => {
     unsubscribe();
   });
 
-  it('awareness, cursor and presence engines proxy context behavior', () => {
+  it('awareness, cursor, event and presence engines proxy context behavior', () => {
     const awarenessContext = {
       updateSelfAwareness: vi.fn(),
       getAllAwareness: vi.fn(() => [{ peerId: 'p1' }]),
@@ -114,6 +115,30 @@ describe('Engine helpers and transport adapters', () => {
     const awarenessSub = vi.fn();
     awareness.subscribe(awarenessSub);
     expect(awareness.getAll()).toEqual([{ peerId: 'p1' }]);
+
+    const eventContext = {
+      emitEvent: vi.fn(),
+      onEvent: vi.fn(
+        (_name: string, cb: (payload: unknown, from: { id: string }) => void) => {
+          cb({ text: 'hello' }, { id: 'peer-b' });
+          return () => {
+            return undefined;
+          };
+        },
+      ),
+      offEvent: vi.fn(),
+    };
+
+    const events = createEventEngine(eventContext);
+    const eventsWithLoopback = createEventEngine(eventContext, { loopback: true });
+    const onMessage = vi.fn();
+
+    events.emit('message', { text: 'default-loopback-off' });
+    events.emitTo('peer-b', 'message', { text: 'direct-default-loopback-off' });
+    eventsWithLoopback.emit('message', { text: 'explicit-loopback-on' });
+    const unsubscribeEvents = events.on('message', onMessage);
+    events.off('message', onMessage);
+    unsubscribeEvents();
 
     const cursorContext = {
       setSelfPosition: vi.fn(),
@@ -163,6 +188,29 @@ describe('Engine helpers and transport adapters', () => {
     presence.getSelf();
 
     expect(awarenessContext.updateSelfAwareness).toHaveBeenCalled();
+    expect(eventContext.emitEvent).toHaveBeenNthCalledWith(
+      1,
+      'message',
+      { text: 'default-loopback-off' },
+      undefined,
+      false,
+    );
+    expect(eventContext.emitEvent).toHaveBeenNthCalledWith(
+      2,
+      'message',
+      { text: 'direct-default-loopback-off' },
+      'peer-b',
+      false,
+    );
+    expect(eventContext.emitEvent).toHaveBeenNthCalledWith(
+      3,
+      'message',
+      { text: 'explicit-loopback-on' },
+      undefined,
+      true,
+    );
+    expect(onMessage).toHaveBeenCalledWith({ text: 'hello' }, { id: 'peer-b' });
+    expect(eventContext.offEvent).toHaveBeenCalledWith('message', onMessage);
     expect(cursorContext.setSelfPosition).toHaveBeenCalled();
     expect(presenceContext.updateSelf).toHaveBeenCalled();
   });

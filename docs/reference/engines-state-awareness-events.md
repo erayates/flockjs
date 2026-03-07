@@ -58,7 +58,7 @@ Behavior notes:
 ## Events
 
 ```ts
-const events = room.useEvents({ loopback: false });
+const events = room.useEvents();
 events.emit('reaction', { emoji: '🔥' });
 ```
 
@@ -70,6 +70,12 @@ interface EventEngine {
   off<T = unknown>(name: string, cb: (payload: T, from: Peer) => void): void;
 }
 ```
+
+Behavior notes:
+
+- `loopback` is `false` by default, so senders do not receive their own events unless `useEvents({ loopback: true })` is used.
+- Events are transient and are not persisted or replayed for peers that subscribe or join later.
+- Event names are plain strings and payloads are untyped application data.
 
 ## Selection Matrix
 

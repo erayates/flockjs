@@ -10,7 +10,7 @@ export function createEventEngine<TPresence extends PresenceData>(
   context: EventEngineContext<TPresence>,
   options?: EventOptions,
 ): EventEngine<TPresence> {
-  const defaultLoopback = options?.loopback ?? true;
+  const defaultLoopback = options?.loopback ?? false;
 
   return {
     emit(name, payload) {
