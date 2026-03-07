@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createFlockError } from './flock-error';
+import { createInitialStateSnapshot, setStateSnapshot } from './internal/state';
+import { createPersistedStateStorageKey } from './internal/state.persistence';
 import type { TransportAdapter, TransportSignal } from './transports/transport';
 import type { Room, RoomOptions } from './types';
 
@@ -56,6 +58,53 @@ class ControlledTransportAdapter implements TransportAdapter {
   }
 }
 
+const originalLocalStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+
+function installMockLocalStorage(storage: Storage): void {
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: storage,
+  });
+}
+
+function restoreMockLocalStorage(): void {
+  if (originalLocalStorageDescriptor) {
+    Object.defineProperty(globalThis, 'localStorage', originalLocalStorageDescriptor);
+    return;
+  }
+
+  Reflect.deleteProperty(globalThis, 'localStorage');
+}
+
+function createMockLocalStorage(): { storage: Storage; store: Map<string, string> } {
+  const store = new Map<string, string>();
+  const storage = {
+    get length() {
+      return store.size;
+    },
+    clear: vi.fn(() => {
+      store.clear();
+    }),
+    getItem: vi.fn((key: string) => {
+      return store.get(key) ?? null;
+    }),
+    key: vi.fn((index: number) => {
+      return Array.from(store.keys())[index] ?? null;
+    }),
+    removeItem: vi.fn((key: string) => {
+      store.delete(key);
+    }),
+    setItem: vi.fn((key: string, value: string) => {
+      store.set(key, value);
+    }),
+  } satisfies Storage;
+
+  return {
+    storage,
+    store,
+  };
+}
+
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -81,6 +130,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  restoreMockLocalStorage();
   vi.doUnmock('./transports/select-transport');
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -333,5 +383,112 @@ describe('Room auto reconnect', () => {
       reason: 'reconnect-exhausted',
     });
     expect(room.status).toBe('disconnected');
+  });
+
+  it('keeps the in-memory persisted state across reconnects without re-reading localStorage', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
+    const localStorageController = createMockLocalStorage();
+    installMockLocalStorage(localStorageController.storage);
+
+    localStorageController.store.set(
+      createPersistedStateStorageKey('room-reconnect'),
+      JSON.stringify({
+        version: 1,
+        strategy: 'lww',
+        snapshot: setStateSnapshot(
+          createInitialStateSnapshot(
+            {
+              count: 0,
+            },
+            'persisted-peer',
+            1,
+          ),
+          {
+            count: 1,
+          },
+          'persisted-peer',
+          2,
+        ),
+      }),
+    );
+
+    const initialAdapter = new ControlledTransportAdapter();
+    const reconnectAdapter = new ControlledTransportAdapter();
+    const adapters = [initialAdapter, reconnectAdapter];
+    const room = await createReconnectRoom(
+      () => {
+        const adapter = adapters.shift();
+        if (!adapter) {
+          throw new Error('Expected queued adapter.');
+        }
+
+        return adapter;
+      },
+      {
+        transport: 'websocket',
+        relayUrl: 'ws://relay.local',
+        reconnect: true,
+      },
+    );
+    const state = room.useState({
+      initialValue: {
+        count: 0,
+      },
+      persist: true,
+    });
+
+    expect(state.get()).toEqual({
+      count: 1,
+    });
+
+    await room.connect();
+
+    state.set({
+      count: 2,
+    });
+    localStorageController.store.set(
+      createPersistedStateStorageKey(room.id),
+      JSON.stringify({
+        version: 1,
+        strategy: 'lww',
+        snapshot: setStateSnapshot(
+          createInitialStateSnapshot(
+            {
+              count: 0,
+            },
+            'external-peer',
+            1,
+          ),
+          {
+            count: 999,
+          },
+          'external-peer',
+          3,
+        ),
+      }),
+    );
+
+    initialAdapter.emit({
+      type: 'transport:disconnected',
+      roomId: room.id,
+      fromPeerId: room.peerId,
+      payload: {
+        reason: 'socket-gone',
+      },
+    });
+
+    await flushMicrotasks();
+
+    const reconnectPromise = room.connect();
+    await vi.advanceTimersByTimeAsync(100);
+    await reconnectPromise;
+
+    expect(state.get()).toEqual({
+      count: 2,
+    });
+
+    await room.disconnect();
   });
 });

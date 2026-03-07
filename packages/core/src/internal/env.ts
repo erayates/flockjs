@@ -6,6 +6,13 @@ export const env = {
   get isBrowser(): boolean {
     return typeof window !== 'undefined';
   },
+  get hasLocalStorage(): boolean {
+    try {
+      return typeof globalThis.localStorage !== 'undefined';
+    } catch {
+      return false;
+    }
+  },
   get hasBroadcastChannel(): boolean {
     return typeof BroadcastChannel !== 'undefined';
   },

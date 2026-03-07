@@ -142,6 +142,44 @@ export function isStateChangeReason(value: unknown): value is StateChangeReason 
   return value === 'set' || value === 'patch' || value === 'undo' || value === 'reset';
 }
 
+export function parseStateSnapshot(value: unknown): StateSnapshot | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(value, 'value')) {
+    return null;
+  }
+
+  const history = value.history;
+  const changedBy = value.changedBy;
+  const timestamp = value.timestamp;
+  const reason = value.reason;
+  const vectorClock = value.vectorClock;
+
+  if (
+    !Array.isArray(history) ||
+    typeof changedBy !== 'string' ||
+    typeof timestamp !== 'number' ||
+    !Number.isFinite(timestamp) ||
+    !isStateChangeReason(reason) ||
+    !isPlainObject(vectorClock)
+  ) {
+    return null;
+  }
+
+  const normalizedVectorClock: Record<string, number> = {};
+  for (const [key, entry] of Object.entries(vectorClock)) {
+    if (typeof entry !== 'number' || !Number.isFinite(entry)) {
+      return null;
+    }
+
+    normalizedVectorClock[key] = entry;
+  }
+
+  return createSnapshot(value.value, history, normalizedVectorClock, changedBy, timestamp, reason);
+}
+
 export function assertSupportedStateStrategy(
   strategy: StateOptions<unknown>['strategy'],
 ): 'lww' {

@@ -8,7 +8,7 @@ import { TypedEventEmitter } from './event-emitter';
 import { createFlockError, FlockError } from './flock-error';
 import { createRuntimePeerId, getWindowEventTarget, type WindowEventTarget } from './internal/env';
 import { readString } from './internal/guards';
-import { logRoomError } from './internal/logger';
+import { logRoomError, logStatePersistence } from './internal/logger';
 import { normalizeMaxPeers } from './internal/max-peers';
 import { PeerRegistry } from './internal/peer-registry';
 import {
@@ -24,6 +24,7 @@ import {
   createInitialStateSnapshot,
   type StateSnapshot,
 } from './internal/state';
+import { readPersistedLwwState, writePersistedLwwState } from './internal/state.persistence';
 import { coerceTypedPeer } from './internal/typed-peer';
 import { selectTransportAdapter } from './transports/select-transport';
 import type {
@@ -232,6 +233,8 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private stateStrategy: 'lww' | 'crdt' | null = null;
 
+  private statePersistenceEnabled = false;
+
   private stateInitialValue: unknown = undefined;
 
   public constructor(roomId: string, options: RoomOptions<TPresence> = {}) {
@@ -438,8 +441,10 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   }
 
   public useState<T>(options: StateOptions<T>): StateEngine<T> {
+    const strategy = this.resolveRequestedStateStrategy(options.strategy);
+    this.assertSupportedStatePersistence(strategy, options.persist);
+
     if (!this.stateEngineInstance) {
-      const strategy = this.resolveRequestedStateStrategy(options.strategy);
       const stateEngine =
         strategy === 'crdt'
           ? this.createCrdtStateEngine(options)
@@ -449,6 +454,11 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     }
 
     this.assertCompatibleStateStrategy(options.strategy);
+
+    if (strategy === 'lww' && options.persist === true) {
+      this.enableStatePersistence();
+    }
+
     return readTypedStateEngine<T>(this.stateEngineInstance);
   }
 
@@ -612,6 +622,37 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private assertCompatibleStateStrategy(strategy: StateOptions<unknown>['strategy']): void {
     void this.resolveRequestedStateStrategy(strategy);
+  }
+
+  private assertSupportedStatePersistence(
+    strategy: 'lww' | 'crdt',
+    persist: StateOptions<unknown>['persist'],
+  ): void {
+    if (persist !== true || strategy === 'lww') {
+      return;
+    }
+
+    throw createFlockError(
+      'INVALID_STATE',
+      'State persistence is only supported for the "lww" strategy.',
+      false,
+      {
+        strategy,
+        persist,
+      },
+    );
+  }
+
+  private enableStatePersistence(): void {
+    if (this.statePersistenceEnabled) {
+      return;
+    }
+
+    this.statePersistenceEnabled = true;
+
+    if (this.stateStrategy === 'lww' && this.stateSnapshot) {
+      this.persistStateSnapshot(this.stateSnapshot);
+    }
   }
 
   private getOrCreateYjsController(): RoomYjsController<TPresence> {
@@ -1021,14 +1062,35 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
     this.stateConfigured = true;
     this.stateStrategy = 'lww';
+    this.statePersistenceEnabled = options.persist === true;
     this.stateInitialValue = cloneStateValue(options.initialValue);
 
+    const persistedSnapshot = this.statePersistenceEnabled
+      ? this.restorePersistedStateSnapshot()
+      : null;
+    let shouldBroadcastPersistedSnapshot = false;
+
     if (!this.stateSnapshot) {
-      this.stateSnapshot = createInitialStateSnapshot(
-        this.stateInitialValue,
-        this.peerId,
-        Date.now(),
-      );
+      this.stateSnapshot = persistedSnapshot
+        ? cloneStateSnapshot(persistedSnapshot)
+        : createInitialStateSnapshot(this.stateInitialValue, this.peerId, Date.now());
+      shouldBroadcastPersistedSnapshot = persistedSnapshot !== null;
+    } else if (
+      persistedSnapshot &&
+      compareStateSnapshots(persistedSnapshot, this.stateSnapshot) > 0
+    ) {
+      this.stateSnapshot = cloneStateSnapshot(persistedSnapshot);
+      shouldBroadcastPersistedSnapshot = true;
+    }
+
+    const configuredSnapshot = this.stateSnapshot;
+
+    if (this.statePersistenceEnabled) {
+      this.persistStateSnapshot(configuredSnapshot);
+    }
+
+    if (shouldBroadcastPersistedSnapshot && this.currentStatus === 'connected') {
+      this.sendStateSnapshot(configuredSnapshot);
     }
   }
 
@@ -1056,7 +1118,46 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private setStateSnapshot(snapshot: StateSnapshot): void {
     this.stateSnapshot = cloneStateSnapshot(snapshot);
+    this.persistStateSnapshot(this.stateSnapshot);
     this.notifyStateSubscribers();
+  }
+
+  private restorePersistedStateSnapshot(): StateSnapshot | null {
+    const result = readPersistedLwwState(this.id);
+    if (result.snapshot) {
+      return result.snapshot;
+    }
+
+    if (result.error) {
+      logStatePersistence(this.options.debug, {
+        operation: 'read',
+        roomId: this.id,
+        key: result.key,
+        reason: result.reason ?? 'unknown',
+        error: result.error,
+      });
+    }
+
+    return null;
+  }
+
+  private persistStateSnapshot(snapshot: StateSnapshot): void {
+    if (!this.statePersistenceEnabled || this.stateStrategy !== 'lww') {
+      return;
+    }
+
+    const result = writePersistedLwwState(this.id, snapshot);
+    if (result.ok || !result.error) {
+      return;
+    }
+
+    logStatePersistence(this.options.debug, {
+      operation: 'write',
+      roomId: this.id,
+      key: result.key,
+      reason: result.reason ?? 'unknown',
+      error: result.error,
+    });
   }
 
   private getSelfAndPeersSnapshot(): Peer<TPresence>[] {

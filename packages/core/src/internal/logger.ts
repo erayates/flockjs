@@ -108,3 +108,25 @@ export function logRoomError(
     cause: error.cause,
   });
 }
+
+export function logStatePersistence(
+  debug: boolean | DebugOptions | undefined,
+  details: {
+    operation: 'read' | 'write' | 'remove';
+    roomId: string;
+    key: string;
+    reason: string;
+    error?: unknown;
+  },
+): void {
+  if (!isDebugChannelEnabled(debug, 'state')) {
+    return;
+  }
+
+  const consoleLike = getConsoleLike();
+  if (!consoleLike) {
+    return;
+  }
+
+  consoleLike.debug('[flockjs][state] persistence', details);
+}
