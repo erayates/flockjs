@@ -79,6 +79,22 @@ interface StateHarnessState {
   changes: StateHarnessChange[];
 }
 
+interface YjsHarnessState {
+  texts: Record<string, string>;
+  arrays: Record<string, unknown[]>;
+  maps: Record<string, Record<string, unknown>>;
+  provider: {
+    status: 'connected' | 'disconnected';
+    synced: boolean;
+    events: Array<{
+      kind: string;
+      name: string;
+      payload: unknown;
+      at: number;
+    }>;
+  };
+}
+
 interface PageHarnessApi {
   initRoom(config: HarnessInitConfig): Promise<void>;
   connect(): Promise<void>;
@@ -93,15 +109,24 @@ interface PageHarnessApi {
   mountState(config?: {
     options?: Record<string, unknown>;
   }): void;
+  mountYjs(config?: {
+    textKeys?: string[];
+    arrayKeys?: string[];
+    mapKeys?: string[];
+  }): void;
   unmountCursors(): void;
   dispatchCursorMove(input: { x: number; y: number; kind?: 'mouse' | 'touchstart' | 'touchmove' }): void;
   setState(value: unknown): void;
   patchState(value: unknown): void;
   undoState(): void;
   resetState(): void;
+  insertYText(input: { key: string; index: number; text: string }): void;
+  pushYArray(input: { key: string; values: unknown[] }): void;
+  setYMapValue(input: { key: string; entryKey: string; value: unknown }): void;
   getSnapshot(): HarnessSnapshot;
   getCursorState(): CursorHarnessState;
   getStateSnapshot(): StateHarnessState;
+  getYjsSnapshot(): YjsHarnessState;
   getEvents(): HarnessEventRecord[];
   waitForEvent(input: {
     kind: 'room' | 'custom';
@@ -235,6 +260,16 @@ class IntegrationPage {
     }, config);
   }
 
+  public async mountYjs(config?: {
+    textKeys?: string[];
+    arrayKeys?: string[];
+    mapKeys?: string[];
+  }): Promise<void> {
+    await this.page.evaluate((value) => {
+      window.__flockjsIntegration.mountYjs(value);
+    }, config);
+  }
+
   public async dispatchCursorMove(input: {
     x: number;
     y: number;
@@ -269,6 +304,24 @@ class IntegrationPage {
     });
   }
 
+  public async insertYText(key: string, index: number, text: string): Promise<void> {
+    await this.page.evaluate((value) => {
+      window.__flockjsIntegration.insertYText(value);
+    }, { key, index, text });
+  }
+
+  public async pushYArray(key: string, values: unknown[]): Promise<void> {
+    await this.page.evaluate((value) => {
+      window.__flockjsIntegration.pushYArray(value);
+    }, { key, values });
+  }
+
+  public async setYMapValue(key: string, entryKey: string, value: unknown): Promise<void> {
+    await this.page.evaluate((payload) => {
+      window.__flockjsIntegration.setYMapValue(payload);
+    }, { key, entryKey, value });
+  }
+
   public async getCursorState(): Promise<CursorHarnessState> {
     return this.page.evaluate(() => {
       return window.__flockjsIntegration.getCursorState();
@@ -278,6 +331,12 @@ class IntegrationPage {
   public async getStateSnapshot(): Promise<StateHarnessState> {
     return this.page.evaluate(() => {
       return window.__flockjsIntegration.getStateSnapshot();
+    });
+  }
+
+  public async getYjsSnapshot(): Promise<YjsHarnessState> {
+    return this.page.evaluate(() => {
+      return window.__flockjsIntegration.getYjsSnapshot();
     });
   }
 
@@ -1001,6 +1060,273 @@ test.describe('multi-tab integration', () => {
           return event?.payload ?? null;
         })
         .toEqual({ ok: true });
+    } finally {
+      await context.close();
+      await relay.stop();
+    }
+  });
+
+  test('syncs Yjs documents over websocket relay and bootstraps late joiners', async ({
+    browser,
+  }, testInfo) => {
+    test.setTimeout(120_000);
+
+    const relay = new RelayController(await reserveRelayPort());
+    await relay.start();
+
+    const context = await browser.newContext();
+    const roomId = createRoomId(testInfo, 'yjs-websocket');
+    const pages = await Promise.all(
+      ['Alice', 'Bob', 'Carol'].map((name) => {
+        return initializeHarnessPage(context, {
+          roomId,
+          options: {
+            transport: 'websocket',
+            relayUrl: relay.url,
+            presence: {
+              name,
+            },
+          },
+        });
+      }),
+    );
+    const [first, second, third] = pages;
+    if (!first || !second || !third) {
+      throw new Error('Expected websocket Yjs test pages.');
+    }
+
+    try {
+      await Promise.all(
+        pages.map((page) => {
+          return page.mountYjs({
+            textKeys: ['content'],
+            arrayKeys: ['items'],
+            mapKeys: ['meta'],
+          });
+        }),
+      );
+      await Promise.all(pages.map((page) => page.connect()));
+
+      await Promise.all(
+        pages.map((page) => {
+          return expect
+            .poll(async () => {
+              return (await page.getSnapshot()).peerCount;
+            })
+            .toBe(2);
+        }),
+      );
+      await Promise.all(
+        pages.map((page) => {
+          return expect
+            .poll(async () => {
+              return (await page.getYjsSnapshot()).provider.synced;
+            })
+            .toBe(true);
+        }),
+      );
+
+      await Promise.all([
+        first.insertYText('content', 0, 'A'),
+        second.insertYText('content', 0, 'B'),
+        third.insertYText('content', 0, 'C'),
+        first.pushYArray('items', ['alpha']),
+        second.pushYArray('items', ['beta']),
+        third.pushYArray('items', ['gamma']),
+        first.setYMapValue('meta', 'a', 1),
+        second.setYMapValue('meta', 'b', 2),
+        third.setYMapValue('meta', 'c', 3),
+      ]);
+
+      await Promise.all(
+        pages.map((page) => {
+          return expect
+            .poll(async () => {
+              return await page.getYjsSnapshot();
+            })
+            .toMatchObject({
+              texts: {
+                content: expect.any(String),
+              },
+              arrays: {
+                items: expect.arrayContaining(['alpha', 'beta', 'gamma']),
+              },
+              maps: {
+                meta: {
+                  a: 1,
+                  b: 2,
+                  c: 3,
+                },
+              },
+            });
+        }),
+      );
+
+      const firstSnapshot = await first.getYjsSnapshot();
+      expect((firstSnapshot.texts.content ?? '').split('').sort()).toEqual(['A', 'B', 'C']);
+
+      const late = await initializeHarnessPage(context, {
+        roomId,
+        options: {
+          transport: 'websocket',
+          relayUrl: relay.url,
+          presence: {
+            name: 'Late',
+          },
+        },
+      });
+      await late.mountYjs({
+        textKeys: ['content'],
+        arrayKeys: ['items'],
+        mapKeys: ['meta'],
+      });
+      await late.connect();
+
+      await expect
+        .poll(async () => {
+          return await late.getYjsSnapshot();
+        })
+        .toMatchObject({
+          arrays: {
+            items: expect.arrayContaining(['alpha', 'beta', 'gamma']),
+          },
+          maps: {
+            meta: {
+              a: 1,
+              b: 2,
+              c: 3,
+            },
+          },
+        });
+      expect(((await late.getYjsSnapshot()).texts.content ?? '').split('').sort()).toEqual([
+        'A',
+        'B',
+        'C',
+      ]);
+    } finally {
+      await context.close();
+      await relay.stop();
+    }
+  });
+
+  test('syncs Yjs documents across 3 real WebRTC peers without data loss', async ({
+    browser,
+  }, testInfo) => {
+    test.setTimeout(120_000);
+
+    const relay = new RelayController(await reserveRelayPort());
+    await relay.start();
+
+    const context = await browser.newContext();
+    const roomId = createRoomId(testInfo, 'yjs-webrtc');
+    const pages = await Promise.all(
+      ['Alice', 'Bob', 'Carol'].map((name) => {
+        return initializeHarnessPage(context, {
+          roomId,
+          options: {
+            transport: 'webrtc',
+            relayUrl: relay.url,
+            presence: {
+              name,
+            },
+          },
+        });
+      }),
+    );
+    const [first, second, third] = pages;
+    if (!first || !second || !third) {
+      throw new Error('Expected WebRTC Yjs test pages.');
+    }
+
+    try {
+      const snapshots = await Promise.all(pages.map((page) => page.getSnapshot()));
+      test.skip(
+        snapshots.some((snapshot) => !snapshot.rtc.available),
+        'RTCPeerConnection is unavailable in this browser runtime.',
+      );
+
+      await Promise.all(
+        pages.map((page) => {
+          return page.mountYjs({
+            textKeys: ['content'],
+            arrayKeys: ['items'],
+            mapKeys: ['meta'],
+          });
+        }),
+      );
+      await Promise.all(pages.map((page) => page.connect()));
+
+      await Promise.all(
+        pages.map((page) => {
+          return expect
+            .poll(
+              async () => {
+                return (await page.getSnapshot()).peerCount;
+              },
+              {
+                timeout: 40_000,
+              },
+            )
+            .toBe(2);
+        }),
+      );
+      await Promise.all(
+        pages.map((page) => {
+          return expect
+            .poll(
+              async () => {
+                return (await page.getSnapshot()).rtc.dataChannelOpened;
+              },
+              {
+                timeout: 40_000,
+              },
+            )
+            .toBe(true);
+        }),
+      );
+
+      await Promise.all([
+        first.insertYText('content', 0, 'A'),
+        second.insertYText('content', 0, 'B'),
+        third.insertYText('content', 0, 'C'),
+        first.pushYArray('items', ['alpha']),
+        second.pushYArray('items', ['beta']),
+        third.pushYArray('items', ['gamma']),
+        first.setYMapValue('meta', 'a', 1),
+        second.setYMapValue('meta', 'b', 2),
+        third.setYMapValue('meta', 'c', 3),
+      ]);
+
+      await Promise.all(
+        pages.map((page) => {
+          return expect
+            .poll(
+              async () => {
+                return await page.getYjsSnapshot();
+              },
+              {
+                timeout: 40_000,
+              },
+            )
+            .toMatchObject({
+              arrays: {
+                items: expect.arrayContaining(['alpha', 'beta', 'gamma']),
+              },
+              maps: {
+                meta: {
+                  a: 1,
+                  b: 2,
+                  c: 3,
+                },
+              },
+            });
+        }),
+      );
+
+      const snapshotsAfterSync = await Promise.all(pages.map((page) => page.getYjsSnapshot()));
+      for (const snapshot of snapshotsAfterSync) {
+        expect((snapshot.texts.content ?? '').split('').sort()).toEqual(['A', 'B', 'C']);
+      }
     } finally {
       await context.close();
       await relay.stop();

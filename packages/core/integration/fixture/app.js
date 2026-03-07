@@ -19,6 +19,7 @@ const state = {
   stateEngine: null,
   roomEventUnsubscribes: [],
   customEventUnsubscribes: [],
+  yjsUnsubscribes: [],
   cursorUnsubscribe: null,
   stateUnsubscribe: null,
   roomEvents: [],
@@ -26,6 +27,14 @@ const state = {
   cursorPositions: [],
   sharedState: null,
   stateChanges: [],
+  yDoc: null,
+  yProvider: null,
+  yjsConfig: {
+    textKeys: [],
+    arrayKeys: [],
+    mapKeys: [],
+  },
+  yjsEvents: [],
   rtc: {
     available: typeof RTCPeerConnection === 'function',
     peerConnectionsCreated: 0,
@@ -88,6 +97,10 @@ function clearSubscriptions() {
     unsubscribe();
   }
 
+  for (const unsubscribe of state.yjsUnsubscribes) {
+    unsubscribe();
+  }
+
   state.cursorUnsubscribe?.();
   state.cursorUnsubscribe = null;
   state.stateUnsubscribe?.();
@@ -95,6 +108,7 @@ function clearSubscriptions() {
 
   state.roomEventUnsubscribes = [];
   state.customEventUnsubscribes = [];
+  state.yjsUnsubscribes = [];
 }
 
 function resetState() {
@@ -108,6 +122,14 @@ function resetState() {
   state.stateEngine = null;
   state.sharedState = null;
   state.stateChanges = [];
+  state.yDoc = null;
+  state.yProvider = null;
+  state.yjsConfig = {
+    textKeys: [],
+    arrayKeys: [],
+    mapKeys: [],
+  };
+  state.yjsEvents = [];
 }
 
 function getBoardElement() {
@@ -160,6 +182,44 @@ function getRenderedCursorSnapshot() {
       labelDisplay: label instanceof HTMLElement ? label.style.display : null,
     };
   });
+}
+
+function rememberTrackedYjsKey(kind, key) {
+  const collection = state.yjsConfig[kind];
+  if (!collection.includes(key)) {
+    collection.push(key);
+  }
+}
+
+function getYjsSnapshot() {
+  const texts = {};
+  const arrays = {};
+  const maps = {};
+
+  if (state.yDoc) {
+    for (const key of state.yjsConfig.textKeys) {
+      texts[key] = state.yDoc.getText(key).toString();
+    }
+
+    for (const key of state.yjsConfig.arrayKeys) {
+      arrays[key] = snapshotValue(state.yDoc.getArray(key).toArray());
+    }
+
+    for (const key of state.yjsConfig.mapKeys) {
+      maps[key] = snapshotValue(state.yDoc.getMap(key).toJSON());
+    }
+  }
+
+  return {
+    texts,
+    arrays,
+    maps,
+    provider: {
+      status: state.yProvider ? state.yProvider.status : 'disconnected',
+      synced: state.yProvider ? state.yProvider.synced : false,
+      events: snapshotValue(state.yjsEvents),
+    },
+  };
 }
 
 function instrumentRtcChannel(channel) {
@@ -305,6 +365,42 @@ window.__flockjsIntegration = {
     });
   },
 
+  mountYjs(config = {}) {
+    if (!state.room) {
+      throw new Error('Room has not been initialized.');
+    }
+
+    state.yDoc = state.room.getYDoc();
+    state.yProvider = state.room.getYProvider();
+    state.yjsConfig = {
+      textKeys: [...(config.textKeys ?? [])],
+      arrayKeys: [...(config.arrayKeys ?? [])],
+      mapKeys: [...(config.mapKeys ?? [])],
+    };
+    state.yjsEvents = [];
+
+    state.yjsUnsubscribes.push(
+      state.yProvider.on('status', (payload) => {
+        state.yjsEvents.push({
+          kind: 'provider',
+          name: 'status',
+          payload: snapshotValue(payload),
+          at: Date.now(),
+        });
+      }),
+    );
+    state.yjsUnsubscribes.push(
+      state.yProvider.on('sync', (payload) => {
+        state.yjsEvents.push({
+          kind: 'provider',
+          name: 'sync',
+          payload: snapshotValue(payload),
+          at: Date.now(),
+        });
+      }),
+    );
+  },
+
   setState(value) {
     if (!state.stateEngine) {
       throw new Error('State engine is not initialized.');
@@ -342,6 +438,37 @@ window.__flockjsIntegration = {
       value: snapshotValue(state.sharedState),
       changes: snapshotValue(state.stateChanges),
     };
+  },
+
+  insertYText({ key, index, text }) {
+    if (!state.yDoc) {
+      throw new Error('Yjs document is not initialized.');
+    }
+
+    rememberTrackedYjsKey('textKeys', key);
+    state.yDoc.getText(key).insert(index, text);
+  },
+
+  pushYArray({ key, values }) {
+    if (!state.yDoc) {
+      throw new Error('Yjs document is not initialized.');
+    }
+
+    rememberTrackedYjsKey('arrayKeys', key);
+    state.yDoc.getArray(key).push(values);
+  },
+
+  setYMapValue({ key, entryKey, value }) {
+    if (!state.yDoc) {
+      throw new Error('Yjs document is not initialized.');
+    }
+
+    rememberTrackedYjsKey('mapKeys', key);
+    state.yDoc.getMap(key).set(entryKey, value);
+  },
+
+  getYjsSnapshot() {
+    return getYjsSnapshot();
   },
 
   unmountCursors() {
