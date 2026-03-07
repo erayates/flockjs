@@ -1,3 +1,4 @@
+import { encode } from '@msgpack/msgpack';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -166,6 +167,108 @@ describe('relay protocol', () => {
           name: 'ping',
           payload: {
             ok: true,
+          },
+        },
+        },
+      } satisfies RelayTransportMessage);
+  });
+
+  it('parses state and CRDT transport client messages', () => {
+    expect(
+      parseRelayClientMessage(
+        JSON.stringify({
+          type: 'transport',
+          message: {
+            source: 'flockjs',
+            protocolVersion: 2,
+            codec: 'json',
+            roomId: 'room-state',
+            fromPeerId: 'peer-a',
+            toPeerId: 'peer-b',
+            timestamp: 1,
+            type: 'state:update',
+            payload: {
+              value: {
+                count: 1,
+              },
+              history: [],
+              vectorClock: {
+                'peer-a': 1,
+              },
+              changedBy: 'peer-a',
+              timestamp: 1,
+              reason: 'set',
+            },
+          },
+        }),
+      ),
+    ).toEqual({
+      type: 'transport',
+      encoding: 'json',
+      signal: {
+        type: 'state:update',
+        roomId: 'room-state',
+        fromPeerId: 'peer-a',
+        toPeerId: 'peer-b',
+        timestamp: 1,
+        payload: {
+          value: {
+            count: 1,
+          },
+          history: [],
+          vectorClock: {
+            'peer-a': 1,
+          },
+          changedBy: 'peer-a',
+          timestamp: 1,
+          reason: 'set',
+        },
+      },
+    } satisfies RelayTransportMessage);
+
+    expect(
+      parseRelayClientMessage(
+        new Uint8Array(
+          encode({
+            type: 'transport',
+            message: {
+              source: 'flockjs',
+              protocolVersion: 2,
+              codec: 'msgpack',
+              roomId: 'room-crdt',
+              fromPeerId: 'peer-a',
+              toPeerId: 'peer-b',
+              timestamp: 2,
+              type: 'crdt:sync',
+              payload: {
+                kind: 'update',
+                data: new Uint8Array([1, 2, 3]),
+                meta: {
+                  reason: 'set',
+                  changedBy: 'peer-a',
+                  timestamp: 2,
+                },
+              },
+            },
+          }),
+        ),
+      ),
+    ).toEqual({
+      type: 'transport',
+      encoding: 'msgpack',
+      signal: {
+        type: 'crdt:sync',
+        roomId: 'room-crdt',
+        fromPeerId: 'peer-a',
+        toPeerId: 'peer-b',
+        timestamp: 2,
+        payload: {
+          kind: 'update',
+          data: new Uint8Array([1, 2, 3]),
+          meta: {
+            reason: 'set',
+            changedBy: 'peer-a',
+            timestamp: 2,
           },
         },
       },

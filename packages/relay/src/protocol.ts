@@ -49,6 +49,19 @@ const eventPayloadSchema = z.object({
   loopback: z.boolean().optional(),
 });
 
+const stateChangeReasonSchema = z.enum(['set', 'patch', 'undo', 'reset']);
+
+const stateChangeMetaSchema = z.object({
+  reason: stateChangeReasonSchema,
+  changedBy: z.string().min(1),
+  timestamp: z.number().finite(),
+});
+
+const binaryWireDataSchema = z.union([
+  z.instanceof(Uint8Array),
+  z.array(z.number().int().min(0).max(0xff)),
+]);
+
 function normalizeMaxPeers(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return undefined;
@@ -126,6 +139,43 @@ const normalizedTransportSignalSchema = z.discriminatedUnion('type', [
     timestamp: z.number().finite(),
     payload: z.object({
       awareness: awarenessSchema,
+    }),
+  }),
+  z.object({
+    type: z.literal('state:update'),
+    roomId: z.string().min(1),
+    fromPeerId: z.string().min(1),
+    toPeerId: z.string().min(1).optional(),
+    timestamp: z.number().finite(),
+    payload: z.object({
+      value: z.unknown(),
+      history: z.array(z.unknown()),
+      vectorClock: z.record(z.string(), z.number().finite()),
+      changedBy: z.string().min(1),
+      timestamp: z.number().finite(),
+      reason: stateChangeReasonSchema,
+    }),
+  }),
+  z.object({
+    type: z.literal('crdt:sync'),
+    roomId: z.string().min(1),
+    fromPeerId: z.string().min(1),
+    toPeerId: z.string().min(1).optional(),
+    timestamp: z.number().finite(),
+    payload: z.object({
+      kind: z.enum(['state-vector', 'update']),
+      data: binaryWireDataSchema,
+      meta: stateChangeMetaSchema.optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal('crdt:awareness'),
+    roomId: z.string().min(1),
+    fromPeerId: z.string().min(1),
+    toPeerId: z.string().min(1).optional(),
+    timestamp: z.number().finite(),
+    payload: z.object({
+      data: binaryWireDataSchema,
     }),
   }),
   z.object({
@@ -262,8 +312,11 @@ const RELAY_TRANSPORT_SIGNAL_TYPES = new Set<string>([
   'presence:update',
   'leave',
   'cursor:update',
+  'state:update',
   'awareness:update',
   'event',
+  'crdt:sync',
+  'crdt:awareness',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
