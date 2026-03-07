@@ -3,6 +3,7 @@ import { createCursorEngine } from './engines/cursors';
 import { createEventEngine } from './engines/events';
 import { createPresenceEngine } from './engines/presence';
 import { createStateEngine } from './engines/state';
+import { createCrdtStateEngine as createCrdtStateEngineRuntime } from './engines/state.crdt';
 import { TypedEventEmitter } from './event-emitter';
 import { createFlockError, FlockError } from './flock-error';
 import { createRuntimePeerId, getWindowEventTarget, type WindowEventTarget } from './internal/env';
@@ -17,7 +18,6 @@ import {
   resolveReconnectOptions,
 } from './internal/reconnect';
 import {
-  assertSupportedStateStrategy,
   cloneStateSnapshot,
   cloneStateValue,
   compareStateSnapshots,
@@ -43,6 +43,7 @@ import type {
   CursorPosition,
   EventEngine,
   EventOptions,
+  FlockYjsProvider,
   Peer,
   PresenceData,
   PresenceEngine,
@@ -56,6 +57,7 @@ import type {
   StateOptions,
   Unsubscribe,
 } from './types';
+import { RoomYjsController } from './yjs/controller';
 
 const LOCKED_PRESENCE_KEYS = new Set(['id', 'joinedAt', 'lastSeen']);
 const PRESENCE_HEARTBEAT_MS = 30_000;
@@ -222,9 +224,13 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private awarenessEngineInstance: AwarenessEngine | null = null;
 
+  private yjsController: RoomYjsController<TPresence> | null = null;
+
   private stateSnapshot: StateSnapshot | null = null;
 
   private stateConfigured = false;
+
+  private stateStrategy: 'lww' | 'crdt' | null = null;
 
   private stateInitialValue: unknown = undefined;
 
@@ -341,6 +347,8 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       return;
     }
 
+    this.yjsController?.prepareForDisconnect();
+
     this.sendSignal({
       type: 'leave',
       payload: {
@@ -431,41 +439,36 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   public useState<T>(options: StateOptions<T>): StateEngine<T> {
     if (!this.stateEngineInstance) {
-      this.configureState(options);
-      const stateEngine = createStateEngine<T>(options, {
-        actorId: this.peerId,
-        getInitialValue: () => {
-          return readTypedStateStoredValue<T>(this.stateInitialValue);
-        },
-        getValue: () => {
-          return readTypedStateValue<T>(this.requireStateSnapshot());
-        },
-        getSnapshot: () => {
-          return this.requireStateSnapshot();
-        },
-        subscribeSnapshots: (callback) => {
-          this.stateSnapshotSubscribers.add(callback);
-          return () => {
-            this.stateSnapshotSubscribers.delete(callback);
-          };
-        },
-        commitSnapshot: (snapshot) => {
-          this.setStateSnapshot(snapshot);
-          this.sendStateSnapshot(snapshot);
-        },
-      });
-
+      const strategy = this.resolveRequestedStateStrategy(options.strategy);
+      const stateEngine =
+        strategy === 'crdt'
+          ? this.createCrdtStateEngine(options)
+          : this.createLwwStateEngine(options);
       this.stateEngineInstance = stateEngine;
       return stateEngine;
     }
 
+    this.assertCompatibleStateStrategy(options.strategy);
     return readTypedStateEngine<T>(this.stateEngineInstance);
+  }
+
+  public getYDoc(): FlockYjsProvider['doc'] {
+    return this.getOrCreateYjsController().doc;
+  }
+
+  public getYProvider(): FlockYjsProvider {
+    return this.getOrCreateYjsController();
   }
 
   public useAwareness(): AwarenessEngine {
     if (!this.awarenessEngineInstance) {
       this.awarenessEngineInstance = createAwarenessEngine({
         updateSelfAwareness: (patch) => {
+          if (this.yjsController) {
+            this.yjsController.updateLocalAwareness(patch);
+            return;
+          }
+
           const existing = this.awarenessByPeer.get(this.peerId) ?? { peerId: this.peerId };
           const next: AwarenessState = {
             ...existing,
@@ -538,6 +541,125 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       },
       options,
     );
+  }
+
+  private createLwwStateEngine<T>(options: StateOptions<T>): StateEngine<T> {
+    this.configureLwwState(options);
+    return createStateEngine<T>(options, {
+      actorId: this.peerId,
+      getInitialValue: () => {
+        return readTypedStateStoredValue<T>(this.stateInitialValue);
+      },
+      getValue: () => {
+        return readTypedStateValue<T>(this.requireStateSnapshot());
+      },
+      getSnapshot: () => {
+        return this.requireStateSnapshot();
+      },
+      subscribeSnapshots: (callback) => {
+        this.stateSnapshotSubscribers.add(callback);
+        return () => {
+          this.stateSnapshotSubscribers.delete(callback);
+        };
+      },
+      commitSnapshot: (snapshot) => {
+        this.setStateSnapshot(snapshot);
+        this.sendStateSnapshot(snapshot);
+      },
+    });
+  }
+
+  private createCrdtStateEngine<T>(options: StateOptions<T>): StateEngine<T> {
+    this.configureCrdtState(options);
+    return createCrdtStateEngineRuntime<T>(options, {
+      actorId: this.peerId,
+      doc: this.getOrCreateYjsController().doc,
+      getInitialValue: () => {
+        return readTypedStateStoredValue<T>(this.stateInitialValue);
+      },
+    });
+  }
+
+  private resolveRequestedStateStrategy(
+    strategy: StateOptions<unknown>['strategy'],
+  ): 'lww' | 'crdt' {
+    const normalized = strategy ?? this.stateStrategy ?? 'lww';
+    if (normalized !== 'lww' && normalized !== 'crdt') {
+      throw createFlockError(
+        'INVALID_STATE',
+        `State strategy "${normalized}" is not implemented in this runtime. Use "lww" or "crdt".`,
+        false,
+        {
+          strategy: normalized,
+        },
+      );
+    }
+
+    if (this.stateStrategy && normalized !== this.stateStrategy) {
+      throw createFlockError(
+        'INVALID_STATE',
+        `Room state is already configured with strategy "${this.stateStrategy}".`,
+        false,
+        {
+          currentStrategy: this.stateStrategy,
+          requestedStrategy: normalized,
+        },
+      );
+    }
+
+    return normalized;
+  }
+
+  private assertCompatibleStateStrategy(strategy: StateOptions<unknown>['strategy']): void {
+    void this.resolveRequestedStateStrategy(strategy);
+  }
+
+  private getOrCreateYjsController(): RoomYjsController<TPresence> {
+    if (this.yjsController) {
+      return this.yjsController;
+    }
+
+    const controller = new RoomYjsController<TPresence>({
+      peerId: this.peerId,
+      connectRoom: () => {
+        return this.connect();
+      },
+      disconnectRoom: () => {
+        return this.disconnect();
+      },
+      getSelfPeer: () => {
+        return this.selfPeer;
+      },
+      sendSignal: (signal) => {
+        this.sendSignal(signal);
+      },
+    });
+
+    controller.awareness.on('change', () => {
+      this.notifyAwarenessSubscribers();
+    });
+
+    const legacySelfAwareness = this.awarenessByPeer.get(this.peerId);
+    if (legacySelfAwareness) {
+      const rest: Record<string, unknown> = {
+        ...legacySelfAwareness,
+      };
+      delete rest.peerId;
+      if (Object.keys(rest).length > 0) {
+        controller.updateLocalAwareness(rest);
+      }
+    }
+
+    this.yjsController = controller;
+
+    if (this.currentStatus === 'connected') {
+      controller.handleRoomConnected();
+      for (const peer of this.peers) {
+        controller.syncPeer(peer.id);
+      }
+    }
+
+    return controller;
   }
 
   public on<TEvent extends RoomEventName>(
@@ -652,6 +774,12 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       case 'awareness:update':
         this.handleAwarenessSignal(signal);
         return;
+      case 'crdt:sync':
+        this.handleCrdtSyncSignal(signal);
+        return;
+      case 'crdt:awareness':
+        this.handleCrdtAwarenessSignal(signal);
+        return;
       case 'event':
         this.handleCustomEventSignal(signal);
         return;
@@ -680,6 +808,8 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     if (this.stateSnapshot) {
       this.sendStateSnapshot(this.stateSnapshot, signal.fromPeerId);
     }
+
+    this.yjsController?.syncPeer(signal.fromPeerId);
   }
 
   private handlePresenceSignal(
@@ -691,11 +821,14 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
     if (signal.type === 'welcome') {
       this.sendSelfPresence(signal.fromPeerId);
+      this.yjsController?.syncPeer(signal.fromPeerId);
     }
   }
 
   private handleLeaveSignal(signal: Extract<RoomTransportSignal, { type: 'leave' }>): void {
     const peer = signal.payload.peer;
+    this.yjsController?.handlePeerLeft(signal.fromPeerId);
+
     if (peer && peer.id === signal.fromPeerId) {
       this.peerRegistry.removeRemoteImmediately(signal.fromPeerId);
       return;
@@ -721,7 +854,26 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   private handleAwarenessSignal(
     signal: Extract<RoomTransportSignal, { type: 'awareness:update' }>,
   ): void {
+    if (this.yjsController) {
+      return;
+    }
+
     this.awarenessByPeer.set(signal.fromPeerId, signal.payload.awareness);
+    this.notifyAwarenessSubscribers();
+  }
+
+  private handleCrdtSyncSignal(signal: Extract<RoomTransportSignal, { type: 'crdt:sync' }>): void {
+    this.getOrCreateYjsController().handleSyncSignal(
+      signal.fromPeerId,
+      signal.payload,
+      signal.timestamp,
+    );
+  }
+
+  private handleCrdtAwarenessSignal(
+    signal: Extract<RoomTransportSignal, { type: 'crdt:awareness' }>,
+  ): void {
+    this.getOrCreateYjsController().handleAwarenessSignal(signal.payload);
     this.notifyAwarenessSubscribers();
   }
 
@@ -764,6 +916,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       });
     }
 
+    this.yjsController?.handleRoomDisconnected();
     this.peerRegistry.markAllRemotesDisconnected();
 
     if (!this.shouldAutoReconnect()) {
@@ -809,6 +962,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   }
 
   private clearRemoteState(): void {
+    this.yjsController?.handleRoomDisconnected();
     this.peerRegistry.clearRemotePeers({
       emitLeaveEvents: false,
     });
@@ -841,6 +995,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private applySelfPresence(next: Peer<TPresence>): void {
     this.peerRegistry.setSelf(next);
+    this.yjsController?.syncSelfPeer();
     this.sendSelfPresence();
   }
 
@@ -859,13 +1014,13 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     });
   }
 
-  private configureState<T>(options: StateOptions<T>): void {
+  private configureLwwState<T>(options: StateOptions<T>): void {
     if (this.stateConfigured) {
       return;
     }
 
-    assertSupportedStateStrategy(options.strategy);
     this.stateConfigured = true;
+    this.stateStrategy = 'lww';
     this.stateInitialValue = cloneStateValue(options.initialValue);
 
     if (!this.stateSnapshot) {
@@ -875,6 +1030,16 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
         Date.now(),
       );
     }
+  }
+
+  private configureCrdtState<T>(options: StateOptions<T>): void {
+    if (this.stateConfigured) {
+      return;
+    }
+
+    this.stateConfigured = true;
+    this.stateStrategy = 'crdt';
+    this.stateInitialValue = cloneStateValue(options.initialValue);
   }
 
   private requireStateSnapshot(): StateSnapshot {
@@ -927,6 +1092,8 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     this.reconnectAttempt = 0;
     this.lastDisconnectReason = null;
     this.setStatus('connected');
+    this.yjsController?.syncSelfPeer();
+    this.yjsController?.handleRoomConnected();
     this.roomEventEmitter.emit('connected', undefined);
     this.notifyPeerSubscribers();
     this.startPresenceHeartbeat();
@@ -1095,7 +1262,9 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       });
     }
 
-    const selfAwareness = this.awarenessByPeer.get(this.peerId);
+    const selfAwareness = this.yjsController
+      ? null
+      : this.awarenessByPeer.get(this.peerId);
     if (selfAwareness && this.hasReplayableAwareness(selfAwareness)) {
       this.sendSignal({
         type: 'awareness:update',
@@ -1149,6 +1318,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   private handlePeerRegistryLeave(peer: Peer<TPresence>): void {
     this.cursorPositions.delete(peer.id);
     this.awarenessByPeer.delete(peer.id);
+    this.yjsController?.handlePeerLeft(peer.id);
 
     this.roomEventEmitter.emit('peer:leave', peer);
 
@@ -1201,6 +1371,10 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   }
 
   private getAwarenessSnapshot(): AwarenessState[] {
+    if (this.yjsController) {
+      return this.yjsController.getAllAwareness();
+    }
+
     return Array.from(this.awarenessByPeer.values());
   }
 

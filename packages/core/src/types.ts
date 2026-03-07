@@ -1,3 +1,6 @@
+import type { Awareness as YjsAwareness } from 'y-protocols/awareness';
+import type { Doc as YDoc } from 'yjs';
+
 import type { FlockError, FlockErrorCode } from './flock-error';
 
 export type PresenceData = Record<string, unknown>;
@@ -70,6 +73,43 @@ export type Peer<TPresence extends PresenceData = PresenceData> = {
 export type { FlockError, FlockErrorCode };
 
 export type Unsubscribe = () => void;
+
+export type FlockYjsProviderStatus = 'connected' | 'disconnected';
+
+export interface FlockYjsProviderEventMap {
+  status: {
+    status: FlockYjsProviderStatus;
+  };
+  sync: {
+    synced: boolean;
+  };
+}
+
+export type FlockYjsProviderEventName = keyof FlockYjsProviderEventMap;
+
+export type FlockYjsProviderEventHandler<TEvent extends FlockYjsProviderEventName> = (
+  payload: FlockYjsProviderEventMap[TEvent],
+) => void;
+
+export interface FlockYjsProvider {
+  readonly doc: YDoc;
+  readonly awareness: YjsAwareness;
+  readonly synced: boolean;
+  readonly status: FlockYjsProviderStatus;
+
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+  destroy(): Promise<void>;
+
+  on<TEvent extends FlockYjsProviderEventName>(
+    event: TEvent,
+    cb: FlockYjsProviderEventHandler<TEvent>,
+  ): Unsubscribe;
+  off<TEvent extends FlockYjsProviderEventName>(
+    event: TEvent,
+    cb: FlockYjsProviderEventHandler<TEvent>,
+  ): void;
+}
 
 export type RoomEventName =
   | 'connected'
@@ -215,6 +255,8 @@ export interface Room<TPresence extends PresenceData = PresenceData> {
   useState<T>(options: StateOptions<T>): StateEngine<T>;
   useAwareness(): AwarenessEngine;
   useEvents(options?: EventOptions): EventEngine<TPresence>;
+  getYDoc(): YDoc;
+  getYProvider(): FlockYjsProvider;
 
   on<TEvent extends RoomEventName>(
     event: TEvent,

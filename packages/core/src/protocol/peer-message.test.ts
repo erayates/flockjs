@@ -214,6 +214,31 @@ describe('peer-message', () => {
           loopback: true,
         },
       },
+      {
+        type: 'crdt:sync',
+        roomId: 'room-a',
+        fromPeerId: 'peer-b',
+        toPeerId: 'peer-a',
+        timestamp: 18,
+        payload: {
+          kind: 'update',
+          data: new Uint8Array([1, 2, 3]),
+          meta: {
+            reason: 'patch',
+            changedBy: 'peer-b',
+            timestamp: 18,
+          },
+        },
+      },
+      {
+        type: 'crdt:awareness',
+        roomId: 'room-a',
+        fromPeerId: 'peer-b',
+        timestamp: 19,
+        payload: {
+          data: new Uint8Array([9, 8, 7]),
+        },
+      },
     ];
 
     for (const signal of signals) {
@@ -262,6 +287,45 @@ describe('peer-message', () => {
         },
       },
     } satisfies PeerWireMessage);
+  });
+
+  it('encodes CRDT binary payloads as JSON-safe arrays and parses them back to Uint8Array', () => {
+    const signal: PeerWireMessage = {
+      type: 'crdt:sync',
+      roomId: 'room-a',
+      fromPeerId: 'peer-a',
+      toPeerId: 'peer-b',
+      timestamp: 30,
+      payload: {
+        kind: 'state-vector',
+        data: new Uint8Array([1, 2, 3, 4]),
+      },
+    };
+
+    const legacyEncoded = serializePeerWireEnvelope(signal, LEGACY_PROTOCOL_SESSION);
+    const jsonEncoded = serializePeerWireEnvelope(signal, {
+      version: 2,
+      codec: 'json',
+      legacy: false,
+    });
+    const msgpackEncoded = serializePeerWireEnvelope(signal, {
+      version: 2,
+      codec: 'msgpack',
+      legacy: false,
+    });
+
+    expect(typeof legacyEncoded).toBe('string');
+    expect(typeof jsonEncoded).toBe('string');
+    expect(msgpackEncoded).toBeInstanceOf(Uint8Array);
+    expect(JSON.parse(legacyEncoded as string).signal.payload.data).toEqual([1, 2, 3, 4]);
+    expect(JSON.parse(jsonEncoded as string).payload.data).toEqual([1, 2, 3, 4]);
+    expect(
+      parsePeerWireEnvelope(legacyEncoded, {
+        now: () => 30,
+      }),
+    ).toEqual(signal);
+    expect(parsePeerWireEnvelope(jsonEncoded)).toEqual(signal);
+    expect(parsePeerWireEnvelope(msgpackEncoded)).toEqual(signal);
   });
 
   it('rejects malformed payloads and unsupported protocol metadata', () => {
@@ -331,6 +395,24 @@ describe('peer-message', () => {
             roomId: 'room-a',
             fromPeerId: 'peer-a',
             payload: {},
+          },
+        }),
+      ),
+    ).toBeNull();
+
+    expect(
+      parsePeerWireEnvelope(
+        JSON.stringify({
+          source: 'flockjs',
+          protocolVersion: 2,
+          codec: 'json',
+          roomId: 'room-a',
+          fromPeerId: 'peer-a',
+          timestamp: 1,
+          type: 'crdt:sync',
+          payload: {
+            kind: 'update',
+            data: [1, 'bad', 3],
           },
         }),
       ),

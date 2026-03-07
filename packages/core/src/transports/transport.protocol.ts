@@ -23,6 +23,8 @@ const ROOM_TRANSPORT_SIGNAL_TYPES = new Set<string>([
   'state:update',
   'awareness:update',
   'event',
+  'crdt:sync',
+  'crdt:awareness',
 ]);
 
 const JSON_ONLY_CAPABILITIES = createProtocolCapabilities(['json'], 'json');

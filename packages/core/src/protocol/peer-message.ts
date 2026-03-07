@@ -1,6 +1,12 @@
 import { isObject, readBoolean, readNumber, readRecord, readString } from '../internal/guards';
 import { isStateChangeReason } from '../internal/state';
-import type { AwarenessState, CursorPosition, Peer, PresenceData } from '../types';
+import type {
+  AwarenessState,
+  CursorPosition,
+  Peer,
+  PresenceData,
+  StateChangeMeta,
+} from '../types';
 import {
   decodeMessagePack,
   encodeMessagePack,
@@ -32,7 +38,11 @@ export type PeerWireMessageType =
   | 'cursor:update'
   | 'state:update'
   | 'awareness:update'
-  | 'event';
+  | 'event'
+  | 'crdt:sync'
+  | 'crdt:awareness';
+
+export type BinaryWireData = Uint8Array | number[];
 
 export interface EventWirePayload {
   name: string;
@@ -75,6 +85,16 @@ export interface AwarenessWirePayload {
   awareness: AwarenessState;
 }
 
+export interface CrdtSyncWirePayload {
+  kind: 'state-vector' | 'update';
+  data: BinaryWireData;
+  meta?: StateChangeMeta;
+}
+
+export interface CrdtAwarenessWirePayload {
+  data: BinaryWireData;
+}
+
 export type PeerWirePayloadByType = {
   hello: HelloWirePayload;
   welcome: WelcomeWirePayload;
@@ -84,6 +104,8 @@ export type PeerWirePayloadByType = {
   'state:update': StateWirePayload;
   'awareness:update': AwarenessWirePayload;
   event: EventWirePayload;
+  'crdt:sync': CrdtSyncWirePayload;
+  'crdt:awareness': CrdtAwarenessWirePayload;
 };
 
 type PeerWireMessageBase<TType extends PeerWireMessageType> = {
@@ -103,6 +125,8 @@ export type CursorWireMessage = PeerWireMessageBase<'cursor:update'>;
 export type StateWireMessage = PeerWireMessageBase<'state:update'>;
 export type AwarenessWireMessage = PeerWireMessageBase<'awareness:update'>;
 export type EventWireMessage = PeerWireMessageBase<'event'>;
+export type CrdtSyncWireMessage = PeerWireMessageBase<'crdt:sync'>;
+export type CrdtAwarenessWireMessage = PeerWireMessageBase<'crdt:awareness'>;
 
 export type PeerWireMessage =
   | HelloWireMessage
@@ -112,7 +136,9 @@ export type PeerWireMessage =
   | CursorWireMessage
   | StateWireMessage
   | AwarenessWireMessage
-  | EventWireMessage;
+  | EventWireMessage
+  | CrdtSyncWireMessage
+  | CrdtAwarenessWireMessage;
 
 interface LegacyPeerTransportEnvelope {
   source: 'flockjs';
@@ -174,6 +200,8 @@ const PEER_MESSAGE_TYPES = new Set<string>([
   'state:update',
   'awareness:update',
   'event',
+  'crdt:sync',
+  'crdt:awareness',
 ]);
 const RESERVED_PEER_KEYS = new Set(['id', 'joinedAt', 'lastSeen', 'name', 'color', 'avatar']);
 
@@ -328,6 +356,67 @@ function parseAwareness(value: unknown, fromPeerId: string): AwarenessState | nu
     ...value,
     peerId: fromPeerId,
   };
+}
+
+function parseStateChangeMeta(value: unknown): StateChangeMeta | null {
+  if (!isObject(value)) {
+    return null;
+  }
+
+  const reason = value.reason;
+  const changedBy = readString(value, 'changedBy');
+  const timestamp = readNumber(value, 'timestamp');
+
+  if (!isStateChangeReason(reason) || typeof changedBy !== 'string' || !isFiniteNumber(timestamp)) {
+    return null;
+  }
+
+  return {
+    reason,
+    changedBy,
+    timestamp,
+  };
+}
+
+function parseBinaryWireData(value: unknown): Uint8Array | null {
+  if (value instanceof Uint8Array) {
+    return value;
+  }
+
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const bytes: number[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'number' || !Number.isInteger(entry) || entry < 0 || entry > 0xff) {
+      return null;
+    }
+
+    bytes.push(entry);
+  }
+
+  return Uint8Array.from(bytes);
+}
+
+function serializeBinaryWireData(
+  value: Uint8Array,
+  codec: PeerProtocolCodec,
+  legacy: boolean,
+): BinaryWireData {
+  if (legacy || codec === 'json') {
+    return Array.from(value);
+  }
+
+  return value;
+}
+
+function normalizeBinaryWireData(value: BinaryWireData): Uint8Array {
+  return value instanceof Uint8Array ? value : Uint8Array.from(value);
 }
 
 function parseEventPayload(value: unknown): EventWirePayload | null {
@@ -505,6 +594,50 @@ function parseAwarenessPayload(value: unknown, fromPeerId: string): AwarenessWir
   };
 }
 
+function parseCrdtSyncPayload(value: unknown): CrdtSyncWirePayload | null {
+  if (!isObject(value)) {
+    return null;
+  }
+
+  const kind = value.kind;
+  const data = parseBinaryWireData(value.data);
+  if ((kind !== 'state-vector' && kind !== 'update') || !data) {
+    return null;
+  }
+
+  const metaValue = value.meta;
+  const meta = metaValue === undefined ? undefined : parseStateChangeMeta(metaValue);
+  if (metaValue !== undefined && !meta) {
+    return null;
+  }
+
+  return meta
+    ? {
+        kind,
+        data,
+        meta,
+      }
+    : {
+        kind,
+        data,
+      };
+}
+
+function parseCrdtAwarenessPayload(value: unknown): CrdtAwarenessWirePayload | null {
+  if (!isObject(value)) {
+    return null;
+  }
+
+  const data = parseBinaryWireData(value.data);
+  if (!data) {
+    return null;
+  }
+
+  return {
+    data,
+  };
+}
+
 function parseBaseSignal(value: unknown): ParsedBaseSignal | null {
   if (!isObject(value)) {
     return null;
@@ -660,6 +793,30 @@ function parseSignalMessage(
         payload,
       };
     }
+    case 'crdt:sync': {
+      const payload = parseCrdtSyncPayload(signal.payload);
+      if (!payload) {
+        return null;
+      }
+
+      return {
+        type: 'crdt:sync',
+        ...base,
+        payload,
+      };
+    }
+    case 'crdt:awareness': {
+      const payload = parseCrdtAwarenessPayload(signal.payload);
+      if (!payload) {
+        return null;
+      }
+
+      return {
+        type: 'crdt:awareness',
+        ...base,
+        payload,
+      };
+    }
     default:
       return null;
   }
@@ -763,13 +920,47 @@ function buildLegacyPayload(message: PeerWireMessage): Record<string, unknown> |
       return {
         event: message.payload,
       };
+    case 'crdt:sync':
+      return {
+        kind: message.payload.kind,
+        data: serializeBinaryWireData(normalizeBinaryWireData(message.payload.data), 'json', true),
+        ...(message.payload.meta !== undefined ? { meta: message.payload.meta } : {}),
+      };
+    case 'crdt:awareness':
+      return {
+        data: serializeBinaryWireData(normalizeBinaryWireData(message.payload.data), 'json', true),
+      };
     default:
       return undefined;
   }
 }
 
-function buildModernPayload(message: PeerWireMessage): PeerWirePayloadByType[PeerWireMessageType] {
-  return message.payload;
+function buildModernPayload(
+  message: PeerWireMessage,
+  session: PeerProtocolSession,
+): PeerWirePayloadByType[PeerWireMessageType] {
+  switch (message.type) {
+    case 'crdt:sync':
+      return {
+        kind: message.payload.kind,
+        data: serializeBinaryWireData(
+          normalizeBinaryWireData(message.payload.data),
+          session.codec,
+          session.legacy,
+        ),
+        ...(message.payload.meta !== undefined ? { meta: message.payload.meta } : {}),
+      };
+    case 'crdt:awareness':
+      return {
+        data: serializeBinaryWireData(
+          normalizeBinaryWireData(message.payload.data),
+          session.codec,
+          session.legacy,
+        ),
+      };
+    default:
+      return message.payload;
+  }
 }
 
 function parseDirectSignal(value: unknown, now: () => number): PeerWireMessage | null {
@@ -913,7 +1104,7 @@ export function serializePeerWireEnvelopeObject(
     ...(message.toPeerId !== undefined ? { toPeerId: message.toPeerId } : {}),
     timestamp: message.timestamp,
     type: message.type,
-    payload: buildModernPayload(message),
+    payload: buildModernPayload(message, session),
   };
 }
 
