@@ -493,6 +493,7 @@ describe('Room engines across reconnect', () => {
     expect(replayedTypes).toContain('hello');
     expect(replayedTypes).toContain('cursor:update');
     expect(replayedTypes).toContain('awareness:update');
+    expect(replayedTypes).toContain('state:update');
 
     reconnectAdapter.emit({
       type: 'hello',

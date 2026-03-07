@@ -16,12 +16,16 @@ const state = {
   room: null,
   eventEngine: null,
   cursorEngine: null,
+  stateEngine: null,
   roomEventUnsubscribes: [],
   customEventUnsubscribes: [],
   cursorUnsubscribe: null,
+  stateUnsubscribe: null,
   roomEvents: [],
   customEvents: [],
   cursorPositions: [],
+  sharedState: null,
+  stateChanges: [],
   rtc: {
     available: typeof RTCPeerConnection === 'function',
     peerConnectionsCreated: 0,
@@ -86,6 +90,8 @@ function clearSubscriptions() {
 
   state.cursorUnsubscribe?.();
   state.cursorUnsubscribe = null;
+  state.stateUnsubscribe?.();
+  state.stateUnsubscribe = null;
 
   state.roomEventUnsubscribes = [];
   state.customEventUnsubscribes = [];
@@ -99,6 +105,9 @@ function resetState() {
   state.cursorPositions = [];
   state.eventEngine = null;
   state.cursorEngine = null;
+  state.stateEngine = null;
+  state.sharedState = null;
+  state.stateChanges = [];
 }
 
 function getBoardElement() {
@@ -277,6 +286,64 @@ window.__flockjsIntegration = {
     }
   },
 
+  mountState(config = {}) {
+    if (!state.room) {
+      throw new Error('Room has not been initialized.');
+    }
+
+    state.stateEngine = state.room.useState(config.options ?? { initialValue: {} });
+    state.sharedState = snapshotValue(state.stateEngine.get());
+    state.stateChanges = [];
+    state.stateUnsubscribe?.();
+    state.stateUnsubscribe = state.stateEngine.subscribe((value, meta) => {
+      state.sharedState = snapshotValue(value);
+      state.stateChanges.push({
+        value: snapshotValue(value),
+        meta: snapshotValue(meta),
+        at: Date.now(),
+      });
+    });
+  },
+
+  setState(value) {
+    if (!state.stateEngine) {
+      throw new Error('State engine is not initialized.');
+    }
+
+    state.stateEngine.set(value);
+  },
+
+  patchState(partial) {
+    if (!state.stateEngine) {
+      throw new Error('State engine is not initialized.');
+    }
+
+    state.stateEngine.patch(partial);
+  },
+
+  undoState() {
+    if (!state.stateEngine) {
+      throw new Error('State engine is not initialized.');
+    }
+
+    state.stateEngine.undo();
+  },
+
+  resetState() {
+    if (!state.stateEngine) {
+      throw new Error('State engine is not initialized.');
+    }
+
+    state.stateEngine.reset();
+  },
+
+  getStateSnapshot() {
+    return {
+      value: snapshotValue(state.sharedState),
+      changes: snapshotValue(state.stateChanges),
+    };
+  },
+
   unmountCursors() {
     state.cursorUnsubscribe?.();
     state.cursorUnsubscribe = null;
@@ -325,6 +392,10 @@ window.__flockjsIntegration = {
       positions: snapshotValue(state.cursorPositions),
       rendered: snapshotValue(getRenderedCursorSnapshot()),
     };
+  },
+
+  getState() {
+    return window.__flockjsIntegration.getStateSnapshot();
   },
 
   getEvents() {

@@ -16,6 +16,14 @@ import {
   type ResolvedReconnectOptions,
   resolveReconnectOptions,
 } from './internal/reconnect';
+import {
+  assertSupportedStateStrategy,
+  cloneStateSnapshot,
+  cloneStateValue,
+  compareStateSnapshots,
+  createInitialStateSnapshot,
+  type StateSnapshot,
+} from './internal/state';
 import { coerceTypedPeer } from './internal/typed-peer';
 import { selectTransportAdapter } from './transports/select-transport';
 import type {
@@ -58,6 +66,7 @@ interface ConnectContext {
 
 type PeerEventCallback<TPresence extends PresenceData> = (peers: Peer<TPresence>[]) => void;
 type CursorCallback = (positions: CursorPosition[]) => void;
+type StateSnapshotCallback = (snapshot: StateSnapshot) => void;
 type AwarenessCallback = (peers: AwarenessState[]) => void;
 type InternalEventCallback<TPresence extends PresenceData> = (
   payload: unknown,
@@ -124,6 +133,24 @@ function isInternalTransportSignal(signal: TransportSignal): boolean {
   return signal.type === 'transport:error' || signal.type === 'transport:disconnected';
 }
 
+function readTypedStateStoredValue<T>(value: unknown): T {
+  // The room exposes a singleton shared state engine, so the first useState<T>() call
+  // establishes the runtime value shape for subsequent reads through that engine.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+  return cloneStateValue(value as T);
+}
+
+function readTypedStateValue<T>(snapshot: StateSnapshot): T {
+  return readTypedStateStoredValue<T>(snapshot.value);
+}
+
+function readTypedStateEngine<T>(stateEngine: unknown): StateEngine<T> {
+  // The room caches one state engine instance, and the first useState<T>() call defines
+  // the runtime shape for subsequent callers in that room.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+  return stateEngine as StateEngine<T>;
+}
+
 export class RoomImpl<TPresence extends PresenceData = PresenceData> implements Room<TPresence> {
   public readonly id: string;
 
@@ -179,6 +206,8 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private readonly cursorSubscribers = new Set<CursorCallback>();
 
+  private readonly stateSnapshotSubscribers = new Set<StateSnapshotCallback>();
+
   private readonly awarenessByPeer = new Map<string, AwarenessState>();
 
   private readonly awarenessSubscribers = new Set<AwarenessCallback>();
@@ -189,7 +218,15 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private cursorEngineInstance: CursorEngine | null = null;
 
+  private stateEngineInstance: unknown = null;
+
   private awarenessEngineInstance: AwarenessEngine | null = null;
+
+  private stateSnapshot: StateSnapshot | null = null;
+
+  private stateConfigured = false;
+
+  private stateInitialValue: unknown = undefined;
 
   public constructor(roomId: string, options: RoomOptions<TPresence> = {}) {
     this.id = roomId;
@@ -393,7 +430,36 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   }
 
   public useState<T>(options: StateOptions<T>): StateEngine<T> {
-    return createStateEngine(options);
+    if (!this.stateEngineInstance) {
+      this.configureState(options);
+      const stateEngine = createStateEngine<T>(options, {
+        actorId: this.peerId,
+        getInitialValue: () => {
+          return readTypedStateStoredValue<T>(this.stateInitialValue);
+        },
+        getValue: () => {
+          return readTypedStateValue<T>(this.requireStateSnapshot());
+        },
+        getSnapshot: () => {
+          return this.requireStateSnapshot();
+        },
+        subscribeSnapshots: (callback) => {
+          this.stateSnapshotSubscribers.add(callback);
+          return () => {
+            this.stateSnapshotSubscribers.delete(callback);
+          };
+        },
+        commitSnapshot: (snapshot) => {
+          this.setStateSnapshot(snapshot);
+          this.sendStateSnapshot(snapshot);
+        },
+      });
+
+      this.stateEngineInstance = stateEngine;
+      return stateEngine;
+    }
+
+    return readTypedStateEngine<T>(this.stateEngineInstance);
   }
 
   public useAwareness(): AwarenessEngine {
@@ -580,6 +646,9 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       case 'cursor:update':
         this.handleCursorSignal(signal);
         return;
+      case 'state:update':
+        this.handleStateSignal(signal);
+        return;
       case 'awareness:update':
         this.handleAwarenessSignal(signal);
         return;
@@ -607,6 +676,10 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
         protocol: getTransportProtocolCapabilities(this.transport?.kind ?? 'in-memory'),
       },
     });
+
+    if (this.stateSnapshot) {
+      this.sendStateSnapshot(this.stateSnapshot, signal.fromPeerId);
+    }
   }
 
   private handlePresenceSignal(
@@ -636,6 +709,13 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   ): void {
     this.cursorPositions.set(signal.fromPeerId, signal.payload.cursor);
     this.notifyCursorSubscribers();
+  }
+
+  private handleStateSignal(signal: Extract<RoomTransportSignal, { type: 'state:update' }>): void {
+    const incomingSnapshot = cloneStateSnapshot(signal.payload);
+    if (!this.stateSnapshot || compareStateSnapshots(incomingSnapshot, this.stateSnapshot) > 0) {
+      this.setStateSnapshot(incomingSnapshot);
+    }
   }
 
   private handleAwarenessSignal(
@@ -720,6 +800,14 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     this.transport.broadcast(outboundSignal);
   }
 
+  private sendStateSnapshot(snapshot: StateSnapshot, toPeerId?: string): void {
+    this.sendSignal({
+      type: 'state:update',
+      ...(toPeerId ? { toPeerId } : {}),
+      payload: cloneStateSnapshot(snapshot),
+    });
+  }
+
   private clearRemoteState(): void {
     this.peerRegistry.clearRemotePeers({
       emitLeaveEvents: false,
@@ -769,6 +857,41 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       ...(toPeerId ? { toPeerId } : {}),
       payload: { peer: this.selfPeer },
     });
+  }
+
+  private configureState<T>(options: StateOptions<T>): void {
+    if (this.stateConfigured) {
+      return;
+    }
+
+    assertSupportedStateStrategy(options.strategy);
+    this.stateConfigured = true;
+    this.stateInitialValue = cloneStateValue(options.initialValue);
+
+    if (!this.stateSnapshot) {
+      this.stateSnapshot = createInitialStateSnapshot(
+        this.stateInitialValue,
+        this.peerId,
+        Date.now(),
+      );
+    }
+  }
+
+  private requireStateSnapshot(): StateSnapshot {
+    if (!this.stateSnapshot) {
+      throw createFlockError(
+        'INVALID_STATE',
+        'Shared state has not been configured for this room. Call room.useState(...) first.',
+        false,
+      );
+    }
+
+    return this.stateSnapshot;
+  }
+
+  private setStateSnapshot(snapshot: StateSnapshot): void {
+    this.stateSnapshot = cloneStateSnapshot(snapshot);
+    this.notifyStateSubscribers();
   }
 
   private getSelfAndPeersSnapshot(): Peer<TPresence>[] {
@@ -958,6 +1081,10 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   }
 
   private replayLocalEphemeralState(): void {
+    if (this.stateSnapshot) {
+      this.sendStateSnapshot(this.stateSnapshot);
+    }
+
     const selfCursor = this.cursorPositions.get(this.peerId);
     if (selfCursor) {
       this.sendSignal({
@@ -1060,6 +1187,16 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     const positions = Array.from(this.cursorPositions.values());
     for (const subscriber of this.cursorSubscribers) {
       subscriber(positions);
+    }
+  }
+
+  private notifyStateSubscribers(): void {
+    if (!this.stateSnapshot) {
+      return;
+    }
+
+    for (const subscriber of this.stateSnapshotSubscribers) {
+      subscriber(this.stateSnapshot);
     }
   }
 

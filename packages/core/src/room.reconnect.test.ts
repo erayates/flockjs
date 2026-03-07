@@ -186,6 +186,7 @@ describe('Room auto reconnect', () => {
     expect(reconnectSignalTypes).toContain('hello');
     expect(reconnectSignalTypes).toContain('cursor:update');
     expect(reconnectSignalTypes).toContain('awareness:update');
+    expect(reconnectSignalTypes).toContain('state:update');
 
     reconnectAdapter.emit({
       type: 'hello',

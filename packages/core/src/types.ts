@@ -134,6 +134,7 @@ export interface StateOptions<T> {
 
 export interface StateChangeMeta {
   reason: 'set' | 'patch' | 'undo' | 'reset';
+  changedBy: string;
   timestamp: number;
 }
 

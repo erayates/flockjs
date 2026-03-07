@@ -20,6 +20,7 @@ const ROOM_TRANSPORT_SIGNAL_TYPES = new Set<string>([
   'presence:update',
   'leave',
   'cursor:update',
+  'state:update',
   'awareness:update',
   'event',
 ]);

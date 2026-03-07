@@ -64,6 +64,21 @@ interface CursorHarnessState {
   }>;
 }
 
+interface StateHarnessChange {
+  value: unknown;
+  meta: {
+    reason: 'set' | 'patch' | 'undo' | 'reset';
+    changedBy: string;
+    timestamp: number;
+  };
+  at: number;
+}
+
+interface StateHarnessState {
+  value: unknown;
+  changes: StateHarnessChange[];
+}
+
 interface PageHarnessApi {
   initRoom(config: HarnessInitConfig): Promise<void>;
   connect(): Promise<void>;
@@ -75,10 +90,18 @@ interface PageHarnessApi {
     options?: Record<string, unknown>;
     renderOptions?: Record<string, unknown>;
   }): void;
+  mountState(config?: {
+    options?: Record<string, unknown>;
+  }): void;
   unmountCursors(): void;
   dispatchCursorMove(input: { x: number; y: number; kind?: 'mouse' | 'touchstart' | 'touchmove' }): void;
+  setState(value: unknown): void;
+  patchState(value: unknown): void;
+  undoState(): void;
+  resetState(): void;
   getSnapshot(): HarnessSnapshot;
   getCursorState(): CursorHarnessState;
+  getStateSnapshot(): StateHarnessState;
   getEvents(): HarnessEventRecord[];
   waitForEvent(input: {
     kind: 'room' | 'custom';
@@ -204,6 +227,14 @@ class IntegrationPage {
     });
   }
 
+  public async mountState(config?: {
+    options?: Record<string, unknown>;
+  }): Promise<void> {
+    await this.page.evaluate((value) => {
+      window.__flockjsIntegration.mountState(value);
+    }, config);
+  }
+
   public async dispatchCursorMove(input: {
     x: number;
     y: number;
@@ -214,9 +245,39 @@ class IntegrationPage {
     }, input);
   }
 
+  public async setState(value: unknown): Promise<void> {
+    await this.page.evaluate((nextValue) => {
+      window.__flockjsIntegration.setState(nextValue);
+    }, value);
+  }
+
+  public async patchState(value: unknown): Promise<void> {
+    await this.page.evaluate((nextValue) => {
+      window.__flockjsIntegration.patchState(nextValue);
+    }, value);
+  }
+
+  public async undoState(): Promise<void> {
+    await this.page.evaluate(() => {
+      window.__flockjsIntegration.undoState();
+    });
+  }
+
+  public async resetState(): Promise<void> {
+    await this.page.evaluate(() => {
+      window.__flockjsIntegration.resetState();
+    });
+  }
+
   public async getCursorState(): Promise<CursorHarnessState> {
     return this.page.evaluate(() => {
       return window.__flockjsIntegration.getCursorState();
+    });
+  }
+
+  public async getStateSnapshot(): Promise<StateHarnessState> {
+    return this.page.evaluate(() => {
+      return window.__flockjsIntegration.getStateSnapshot();
     });
   }
 
@@ -545,6 +606,180 @@ test.describe('multi-tab integration', () => {
 
       await first.unmountCursors();
       await second.unmountCursors();
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('syncs shared state across tabs, late joiners, undo, and reset', async ({
+    browser,
+  }, testInfo) => {
+    const context = await browser.newContext();
+    const roomId = createRoomId(testInfo, 'state-broadcast');
+    const initialValue = {
+      count: 0,
+      nested: {
+        label: 'initial',
+        visible: true,
+      },
+      items: [1],
+    };
+    const first = await initializeHarnessPage(context, {
+      roomId,
+      options: {
+        transport: 'broadcast',
+      },
+    });
+    const second = await initializeHarnessPage(context, {
+      roomId,
+      options: {
+        transport: 'broadcast',
+      },
+    });
+
+    try {
+      await first.mountState({
+        options: {
+          initialValue,
+        },
+      });
+      await second.mountState({
+        options: {
+          initialValue,
+        },
+      });
+
+      await first.connect();
+      await second.connect();
+
+      await expect
+        .poll(async () => {
+          return (await first.getSnapshot()).peerCount;
+        })
+        .toBe(1);
+      await expect
+        .poll(async () => {
+          return (await second.getSnapshot()).peerCount;
+        })
+        .toBe(1);
+
+      await first.setState({
+        count: 1,
+        nested: {
+          label: 'set',
+          visible: true,
+        },
+        items: [1],
+      });
+
+      await expect
+        .poll(async () => {
+          return (await second.getStateSnapshot()).value;
+        })
+        .toEqual({
+          count: 1,
+          nested: {
+            label: 'set',
+            visible: true,
+          },
+          items: [1],
+        });
+
+      await second.patchState({
+        nested: {
+          label: 'patched',
+        },
+        items: [2, 3],
+      });
+
+      await expect
+        .poll(async () => {
+          return (await first.getStateSnapshot()).value;
+        })
+        .toEqual({
+          count: 1,
+          nested: {
+            label: 'patched',
+            visible: true,
+          },
+          items: [2, 3],
+        });
+
+      const firstPeerId = (await first.getSnapshot()).peerId;
+      await expect
+        .poll(async () => {
+          return (await second.getStateSnapshot()).changes.some((change) => {
+            return change.meta.changedBy === firstPeerId && change.meta.reason === 'set';
+          });
+        })
+        .toBe(true);
+
+      const late = await initializeHarnessPage(context, {
+        roomId,
+        options: {
+          transport: 'broadcast',
+        },
+      });
+
+      await late.connect();
+      await late.mountState({
+        options: {
+          initialValue: {
+            count: 999,
+            nested: {
+              label: 'ignored',
+              visible: false,
+            },
+            items: [9],
+          },
+        },
+      });
+
+      await expect
+        .poll(
+          async () => {
+            return (await late.getStateSnapshot()).value;
+          },
+          {
+            timeout: 1_000,
+          },
+        )
+        .toEqual({
+          count: 1,
+          nested: {
+            label: 'patched',
+            visible: true,
+          },
+          items: [2, 3],
+        });
+
+      await late.undoState();
+
+      await expect
+        .poll(async () => {
+          return (await first.getStateSnapshot()).value;
+        })
+        .toEqual({
+          count: 1,
+          nested: {
+            label: 'set',
+            visible: true,
+          },
+          items: [1],
+        });
+
+      await first.resetState();
+
+      await expect
+        .poll(async () => {
+          return (await second.getStateSnapshot()).value;
+        })
+        .toEqual(initialValue);
+      await expect
+        .poll(async () => {
+          return (await late.getStateSnapshot()).value;
+        })
+        .toEqual(initialValue);
     } finally {
       await context.close();
     }

@@ -167,10 +167,33 @@ describe('peer-message', () => {
         },
       },
       {
-        type: 'awareness:update',
+        type: 'state:update',
         roomId: 'room-a',
         fromPeerId: 'peer-b',
         timestamp: 15,
+        payload: {
+          value: {
+            count: 2,
+          },
+          history: [
+            {
+              count: 1,
+            },
+          ],
+          vectorClock: {
+            'peer-a': 1,
+            'peer-b': 2,
+          },
+          changedBy: 'peer-b',
+          timestamp: 15,
+          reason: 'patch',
+        },
+      },
+      {
+        type: 'awareness:update',
+        roomId: 'room-a',
+        fromPeerId: 'peer-b',
+        timestamp: 16,
         payload: {
           awareness: {
             peerId: 'peer-b',
@@ -182,7 +205,7 @@ describe('peer-message', () => {
         type: 'event',
         roomId: 'room-a',
         fromPeerId: 'peer-b',
-        timestamp: 16,
+        timestamp: 17,
         payload: {
           name: 'ping',
           payload: {
@@ -267,6 +290,32 @@ describe('peer-message', () => {
               joinedAt: 1,
               lastSeen: 1,
             },
+          },
+        }),
+      ),
+    ).toBeNull();
+
+    expect(
+      parsePeerWireEnvelope(
+        JSON.stringify({
+          source: 'flockjs',
+          protocolVersion: 2,
+          codec: 'json',
+          roomId: 'room-a',
+          fromPeerId: 'peer-a',
+          timestamp: 1,
+          type: 'state:update',
+          payload: {
+            value: {
+              count: 1,
+            },
+            history: [],
+            vectorClock: {
+              'peer-a': 'bad',
+            },
+            changedBy: 'peer-a',
+            timestamp: 1,
+            reason: 'set',
           },
         }),
       ),

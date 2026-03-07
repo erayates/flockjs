@@ -1,4 +1,9 @@
-export type FlockErrorCode = 'ROOM_FULL' | 'AUTH_FAILED' | 'NETWORK_ERROR' | 'ENCRYPTION_ERROR';
+export type FlockErrorCode =
+  | 'ROOM_FULL'
+  | 'AUTH_FAILED'
+  | 'NETWORK_ERROR'
+  | 'ENCRYPTION_ERROR'
+  | 'INVALID_STATE';
 
 export class FlockError extends Error {
   public readonly code: FlockErrorCode;

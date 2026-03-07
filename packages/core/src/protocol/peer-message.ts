@@ -1,4 +1,5 @@
 import { isObject, readBoolean, readNumber, readRecord, readString } from '../internal/guards';
+import { isStateChangeReason } from '../internal/state';
 import type { AwarenessState, CursorPosition, Peer, PresenceData } from '../types';
 import {
   decodeMessagePack,
@@ -29,6 +30,7 @@ export type PeerWireMessageType =
   | 'presence:update'
   | 'leave'
   | 'cursor:update'
+  | 'state:update'
   | 'awareness:update'
   | 'event';
 
@@ -60,6 +62,15 @@ export interface CursorWirePayload {
   cursor: CursorPosition;
 }
 
+export interface StateWirePayload {
+  value: unknown;
+  history: unknown[];
+  vectorClock: Record<string, number>;
+  changedBy: string;
+  timestamp: number;
+  reason: 'set' | 'patch' | 'undo' | 'reset';
+}
+
 export interface AwarenessWirePayload {
   awareness: AwarenessState;
 }
@@ -70,6 +81,7 @@ export type PeerWirePayloadByType = {
   'presence:update': PresenceWirePayload;
   leave: LeaveWirePayload;
   'cursor:update': CursorWirePayload;
+  'state:update': StateWirePayload;
   'awareness:update': AwarenessWirePayload;
   event: EventWirePayload;
 };
@@ -88,6 +100,7 @@ export type WelcomeWireMessage = PeerWireMessageBase<'welcome'>;
 export type PresenceWireMessage = PeerWireMessageBase<'presence:update'>;
 export type LeaveWireMessage = PeerWireMessageBase<'leave'>;
 export type CursorWireMessage = PeerWireMessageBase<'cursor:update'>;
+export type StateWireMessage = PeerWireMessageBase<'state:update'>;
 export type AwarenessWireMessage = PeerWireMessageBase<'awareness:update'>;
 export type EventWireMessage = PeerWireMessageBase<'event'>;
 
@@ -97,6 +110,7 @@ export type PeerWireMessage =
   | PresenceWireMessage
   | LeaveWireMessage
   | CursorWireMessage
+  | StateWireMessage
   | AwarenessWireMessage
   | EventWireMessage;
 
@@ -157,6 +171,7 @@ const PEER_MESSAGE_TYPES = new Set<string>([
   'presence:update',
   'leave',
   'cursor:update',
+  'state:update',
   'awareness:update',
   'event',
 ]);
@@ -434,6 +449,47 @@ function parseCursorPayload(value: unknown, fromPeerId: string): CursorWirePaylo
   };
 }
 
+function parseStatePayload(value: unknown): StateWirePayload | null {
+  if (!isObject(value)) {
+    return null;
+  }
+
+  const history = value.history;
+  const changedBy = readString(value, 'changedBy');
+  const timestamp = readNumber(value, 'timestamp');
+  const reason = value.reason;
+  const vectorClock = value.vectorClock;
+
+  if (
+    !Array.isArray(history) ||
+    typeof changedBy !== 'string' ||
+    !isFiniteNumber(timestamp) ||
+    !isStateChangeReason(reason) ||
+    !isObject(vectorClock) ||
+    Array.isArray(vectorClock)
+  ) {
+    return null;
+  }
+
+  const normalizedVectorClock: Record<string, number> = {};
+  for (const [key, entry] of Object.entries(vectorClock)) {
+    if (!isFiniteNumber(entry)) {
+      return null;
+    }
+
+    normalizedVectorClock[key] = entry;
+  }
+
+  return {
+    value: value.value,
+    history,
+    vectorClock: normalizedVectorClock,
+    changedBy,
+    timestamp,
+    reason,
+  };
+}
+
 function parseAwarenessPayload(value: unknown, fromPeerId: string): AwarenessWirePayload | null {
   if (!isObject(value)) {
     return null;
@@ -565,6 +621,18 @@ function parseSignalMessage(
         payload,
       };
     }
+    case 'state:update': {
+      const payload = parseStatePayload(signal.payload);
+      if (!payload) {
+        return null;
+      }
+
+      return {
+        type: 'state:update',
+        ...base,
+        payload,
+      };
+    }
     case 'awareness:update': {
       const payload = parseAwarenessPayload(signal.payload, signal.fromPeerId);
       if (!payload) {
@@ -677,6 +745,15 @@ function buildLegacyPayload(message: PeerWireMessage): Record<string, unknown> |
     case 'cursor:update':
       return {
         cursor: message.payload.cursor,
+      };
+    case 'state:update':
+      return {
+        value: message.payload.value,
+        history: message.payload.history,
+        vectorClock: message.payload.vectorClock,
+        changedBy: message.payload.changedBy,
+        timestamp: message.payload.timestamp,
+        reason: message.payload.reason,
       };
     case 'awareness:update':
       return {
