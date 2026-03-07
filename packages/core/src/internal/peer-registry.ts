@@ -149,7 +149,6 @@ export class PeerRegistry<TPresence extends PresenceData = PresenceData> {
 
     const existing = this.remotePeers.get(peer.id);
     const normalized: Peer<TPresence> = {
-      ...existing?.peer,
       ...peer,
       id: peer.id,
       joinedAt: existing?.peer.joinedAt ?? peer.joinedAt,
@@ -168,14 +167,14 @@ export class PeerRegistry<TPresence extends PresenceData = PresenceData> {
       return;
     }
 
-    const hadPendingRemoval = existing.removalTimer !== null;
+    const lastSeenChanged = existing.peer.lastSeen !== normalized.lastSeen;
     this.cancelRemoval(existing);
     const changed = hasMeaningfulPeerChange(existing.peer, normalized);
     existing.peer = normalized;
 
     if (!changed) {
-      if (hadPendingRemoval) {
-        return;
+      if (lastSeenChanged) {
+        this.callbacks.onSnapshotChange?.();
       }
 
       return;

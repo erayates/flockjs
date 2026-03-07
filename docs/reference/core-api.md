@@ -89,6 +89,8 @@ Peer lifecycle notes:
 
 - `peerId` is generated as a collision-resistant UUID v4.
 - `room.peers` and `peerCount` are backed by the internal peer registry used by presence lookups.
+- Local presence keeps `lastSeen` fresh with an internal `30000ms` heartbeat while the room is connected.
+- Late joiners receive current peer presence during the hello/welcome exchange instead of waiting for the next heartbeat.
 - Explicit peer leaves are removed immediately.
 - Inferred disconnects keep the peer visible for up to `5000ms` so same-peer reconnect races can dedupe without emitting a spurious leave/join pair.
 - Automatic reconnect keeps the same room instance, peer identity, and local engine state across retry attempts.

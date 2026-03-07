@@ -27,6 +27,10 @@ const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}
 class MockTransportAdapter implements TransportAdapter {
   public readonly kind = 'webrtc' as const;
 
+  public readonly sentSignals: TransportSignal[] = [];
+
+  public readonly broadcastSignals: TransportSignal[] = [];
+
   private handler: ((signal: TransportSignal) => void) | null = null;
 
   public constructor(
@@ -44,11 +48,11 @@ class MockTransportAdapter implements TransportAdapter {
   }
 
   public send(signal: TransportSignal): void {
-    void signal;
+    this.sentSignals.push(signal);
   }
 
   public broadcast(signal: TransportSignal): void {
-    void signal;
+    this.broadcastSignals.push(signal);
   }
 
   public onMessage(handler: (signal: TransportSignal) => void): () => void {
@@ -471,6 +475,216 @@ describe('createRoom', () => {
       expect(onPeerJoin).toHaveBeenCalledTimes(1);
       expect(onPeerUpdate).not.toHaveBeenCalled();
       expect(onPeerLeave).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock('./transports/select-transport');
+      vi.resetModules();
+      await room?.disconnect();
+      vi.useRealTimers();
+    }
+  });
+
+  it('broadcasts presence heartbeats every 30s while connected and stops after disconnect', async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+
+    const adapter = new MockTransportAdapter();
+    vi.doMock('./transports/select-transport', () => ({
+      selectTransportAdapter: () => {
+        return adapter;
+      },
+    }));
+
+    let room: Room<{ name: string }> | null = null;
+
+    try {
+      const mod = await import('./index');
+      room = mod.createRoom<{ name: string }>('room-presence-heartbeat', {
+        transport: 'webrtc',
+        relayUrl: 'ws://relay.local',
+        presence: {
+          name: 'Alice',
+        },
+      });
+
+      const presence = room.usePresence();
+      const snapshots = vi.fn();
+      presence.subscribe(snapshots);
+
+      await room.connect();
+
+      const initialLastSeen = presence.getSelf().lastSeen;
+      const getHeartbeatSignals = (): TransportSignal[] => {
+        return adapter.broadcastSignals.filter((signal) => signal.type === 'presence:update');
+      };
+
+      expect(getHeartbeatSignals()).toHaveLength(0);
+
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(getHeartbeatSignals()).toHaveLength(0);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(getHeartbeatSignals()).toHaveLength(1);
+      expect(presence.getSelf().lastSeen).toBeGreaterThan(initialLastSeen);
+      expect(snapshots.mock.calls.length).toBeGreaterThanOrEqual(3);
+
+      const heartbeatCountAfterDisconnect = getHeartbeatSignals().length;
+      await room.disconnect();
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(getHeartbeatSignals()).toHaveLength(heartbeatCountAfterDisconnect);
+    } finally {
+      vi.doUnmock('./transports/select-transport');
+      vi.resetModules();
+      await room?.disconnect();
+      vi.useRealTimers();
+    }
+  });
+
+  it('reconciles current self presence back to welcoming peers', async () => {
+    vi.resetModules();
+
+    const adapter = new MockTransportAdapter();
+    vi.doMock('./transports/select-transport', () => ({
+      selectTransportAdapter: () => {
+        return adapter;
+      },
+    }));
+
+    let room: Room<{ name: string; role?: 'editor' | 'viewer' }> | null = null;
+
+    try {
+      const mod = await import('./index');
+      room = mod.createRoom<{ name: string; role?: 'editor' | 'viewer' }>(
+        'room-presence-reconcile',
+        {
+          transport: 'webrtc',
+          relayUrl: 'ws://relay.local',
+          presence: {
+            name: 'Alice',
+          },
+        },
+      );
+
+      room.usePresence().update({
+        role: 'editor',
+      });
+
+      await room.connect();
+
+      adapter.emit({
+        type: 'welcome',
+        roomId: room.id,
+        fromPeerId: 'peer-b',
+        payload: {
+          peer: {
+            id: 'peer-b',
+            joinedAt: 1,
+            lastSeen: 1,
+            name: 'Bob',
+          },
+        },
+      });
+
+      expect(adapter.sentSignals).toContainEqual(
+        expect.objectContaining({
+          type: 'presence:update',
+          toPeerId: 'peer-b',
+          payload: {
+            peer: expect.objectContaining({
+              id: room.peerId,
+              name: 'Alice',
+              role: 'editor',
+            }),
+          },
+        }),
+      );
+    } finally {
+      vi.doUnmock('./transports/select-transport');
+      vi.resetModules();
+      await room?.disconnect();
+    }
+  });
+
+  it('notifies presence subscribers for remote lastSeen heartbeats without emitting peer:update', async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+
+    const adapter = new MockTransportAdapter();
+    vi.doMock('./transports/select-transport', () => ({
+      selectTransportAdapter: () => {
+        return adapter;
+      },
+    }));
+
+    let room: Room<{ name: string }> | null = null;
+
+    try {
+      const mod = await import('./index');
+      room = mod.createRoom<{ name: string }>('room-remote-presence-heartbeat', {
+        transport: 'webrtc',
+        relayUrl: 'ws://relay.local',
+        presence: {
+          name: 'Alice',
+        },
+      });
+
+      await room.connect();
+
+      const presence = room.usePresence();
+      const snapshots = vi.fn();
+      presence.subscribe(snapshots);
+
+      const onPeerUpdate = vi.fn();
+      room.on('peer:update', onPeerUpdate);
+
+      adapter.emit({
+        type: 'hello',
+        roomId: room.id,
+        fromPeerId: 'peer-b',
+        payload: {
+          peer: {
+            id: 'peer-b',
+            joinedAt: 1,
+            lastSeen: 1,
+            name: 'Bob',
+          },
+        },
+      });
+
+      snapshots.mockClear();
+      onPeerUpdate.mockClear();
+
+      const previousLastSeen = presence.get('peer-b')?.lastSeen ?? 0;
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      adapter.emit({
+        type: 'presence:update',
+        roomId: room.id,
+        fromPeerId: 'peer-b',
+        payload: {
+          peer: {
+            id: 'peer-b',
+            joinedAt: 1,
+            lastSeen: 2,
+            name: 'Bob',
+          },
+        },
+      });
+
+      expect(presence.get('peer-b')?.lastSeen).toBeGreaterThan(previousLastSeen);
+      expect(snapshots).toHaveBeenCalledTimes(1);
+      expect(snapshots).toHaveBeenCalledWith([
+        expect.objectContaining({
+          id: room.peerId,
+          name: 'Alice',
+        }),
+        expect.objectContaining({
+          id: 'peer-b',
+          name: 'Bob',
+        }),
+      ]);
+      expect(onPeerUpdate).not.toHaveBeenCalled();
     } finally {
       vi.doUnmock('./transports/select-transport');
       vi.resetModules();

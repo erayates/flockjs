@@ -25,8 +25,13 @@ interface PresenceEngine {
 
 Lookup semantics:
 
+- `update()` shallow-merges user fields into the local presence snapshot and broadcasts the full snapshot.
+- `replace()` replaces user-defined presence fields entirely while preserving `id`, `joinedAt`, and managed `lastSeen`.
+- `subscribe()` fires immediately and then on every peer snapshot change, including `lastSeen` refreshes.
 - `getSelf()` always returns the local peer registry entry.
 - `get(peerId)` and `getAll()` read from the same registry that powers `room.peers`.
+- Local `lastSeen` is refreshed every `30000ms` while connected and propagated through presence updates.
+- Newly connected peers receive current presence during the hello/welcome handshake rather than waiting for the next heartbeat.
 - Peers inferred as disconnected may remain visible for up to `5000ms` before removal so reconnecting with the same peer ID does not churn presence state.
 
 ## Data Shape

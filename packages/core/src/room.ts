@@ -50,6 +50,7 @@ import type {
 } from './types';
 
 const LOCKED_PRESENCE_KEYS = new Set(['id', 'joinedAt', 'lastSeen']);
+const PRESENCE_HEARTBEAT_MS = 30_000;
 
 interface ConnectContext {
   isReconnectAttempt: boolean;
@@ -161,6 +162,8 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   private unloadHandlersRegistered = false;
 
   private unloadEventTarget: WindowEventTarget | null = null;
+
+  private presenceHeartbeat: ReturnType<typeof globalThis.setInterval> | null = null;
 
   private readonly onBeforeUnload = (): void => {
     this.handleWindowUnload();
@@ -291,6 +294,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     }
 
     this.unregisterUnloadHandlers();
+    this.stopPresenceHeartbeat();
 
     if (!this.transport) {
       this.lastDisconnectReason = 'manual';
@@ -601,6 +605,10 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
       | Extract<RoomTransportSignal, { type: 'presence:update' }>,
   ): void {
     this.peerRegistry.upsertRemote(coerceTypedPeer<TPresence>(signal.payload.peer));
+
+    if (signal.type === 'welcome') {
+      this.sendSelfPresence(signal.fromPeerId);
+    }
   }
 
   private handleLeaveSignal(signal: Extract<RoomTransportSignal, { type: 'leave' }>): void {
@@ -649,6 +657,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     }
 
     this.unregisterUnloadHandlers();
+    this.stopPresenceHeartbeat();
 
     const reason = payload.reason ?? 'transport-disconnected';
     this.lastDisconnectReason = reason;
@@ -734,12 +743,20 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
 
   private applySelfPresence(next: Peer<TPresence>): void {
     this.peerRegistry.setSelf(next);
-    this.broadcastSelfPresence();
+    this.sendSelfPresence();
   }
 
-  private broadcastSelfPresence(): void {
+  private refreshSelfPresenceLastSeen(): void {
+    this.applySelfPresence({
+      ...this.selfPeer,
+      lastSeen: Date.now(),
+    });
+  }
+
+  private sendSelfPresence(toPeerId?: string): void {
     this.sendSignal({
       type: 'presence:update',
+      ...(toPeerId ? { toPeerId } : {}),
       payload: { peer: this.selfPeer },
     });
   }
@@ -779,6 +796,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
     this.setStatus('connected');
     this.roomEventEmitter.emit('connected', undefined);
     this.notifyPeerSubscribers();
+    this.startPresenceHeartbeat();
 
     this.sendSignal({
       type: 'hello',
@@ -793,6 +811,7 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
   private failInitialConnect(error: unknown): never {
     const flockError = toTransportError(error);
     this.unregisterUnloadHandlers();
+    this.stopPresenceHeartbeat();
     this.clearRemoteState();
     this.pendingTransportUnsubscribe?.();
     this.pendingTransportUnsubscribe = null;
@@ -948,6 +967,22 @@ export class RoomImpl<TPresence extends PresenceData = PresenceData> implements 
         },
       });
     }
+  }
+
+  private startPresenceHeartbeat(): void {
+    this.stopPresenceHeartbeat();
+    this.presenceHeartbeat = globalThis.setInterval(() => {
+      this.refreshSelfPresenceLastSeen();
+    }, PRESENCE_HEARTBEAT_MS);
+  }
+
+  private stopPresenceHeartbeat(): void {
+    if (this.presenceHeartbeat === null) {
+      return;
+    }
+
+    globalThis.clearInterval(this.presenceHeartbeat);
+    this.presenceHeartbeat = null;
   }
 
   private notifyPeerSubscribers(): void {

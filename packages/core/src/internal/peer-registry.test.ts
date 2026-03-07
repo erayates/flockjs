@@ -156,7 +156,7 @@ describe('PeerRegistry', () => {
 
     expect(onPeerJoin).toHaveBeenCalledTimes(1);
     expect(onPeerUpdate).not.toHaveBeenCalled();
-    expect(onSnapshotChange).toHaveBeenCalledTimes(1);
+    expect(onSnapshotChange).toHaveBeenCalledTimes(2);
   });
 
   it('emits updates for meaningful peer changes', () => {
@@ -187,6 +187,44 @@ describe('PeerRegistry', () => {
       expect.objectContaining({
         id: 'peer-a',
         role: 'viewer',
+      }),
+    );
+  });
+
+  it('emits snapshot changes for lastSeen-only updates without emitting peer:update', () => {
+    const clock = new ManualClock();
+    const onPeerUpdate = vi.fn();
+    const onSnapshotChange = vi.fn();
+    const registry = new PeerRegistry<TestPresence>(createPeer('self'), {
+      clock,
+      onPeerUpdate,
+      onSnapshotChange,
+    });
+
+    registry.upsertRemote(
+      createPeer('peer-a', {
+        name: 'Alice',
+        role: 'editor',
+      }),
+    );
+
+    onPeerUpdate.mockClear();
+    onSnapshotChange.mockClear();
+
+    clock.advanceBy(25);
+    registry.upsertRemote(
+      createPeer('peer-a', {
+        name: 'Alice',
+        role: 'editor',
+      }),
+    );
+
+    expect(onPeerUpdate).not.toHaveBeenCalled();
+    expect(onSnapshotChange).toHaveBeenCalledTimes(1);
+    expect(registry.get('peer-a')).toEqual(
+      expect.objectContaining({
+        id: 'peer-a',
+        lastSeen: 1_025,
       }),
     );
   });
