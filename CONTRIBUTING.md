@@ -62,9 +62,21 @@ Use these additional verification and maintenance commands when needed:
 ```bash
 pnpm typecheck:root
 pnpm format:check
+pnpm test:integration
 pnpm changeset
 pnpm release:status
 ```
+
+Install Playwright browsers before running the browser suite locally:
+
+```bash
+pnpm exec playwright install chromium firefox webkit
+```
+
+`pnpm test:integration` runs the real multi-tab browser transport suite against Chromium,
+Firefox, and Playwright WebKit. WebKit is the project's Safari-equivalent CI coverage target.
+The WebRTC scenario is skipped automatically when the underlying WebKit runtime does not expose
+`RTCPeerConnection`.
 
 Husky hooks should run automatically after install (`prepare` script):
 

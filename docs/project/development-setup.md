@@ -33,11 +33,22 @@ pnpm version-packages
 pnpm release:status
 ```
 
-Additional integration workflow (planned):
+Additional integration workflow:
 
 ```bash
 pnpm test:integration
 ```
+
+Install the Playwright browsers before running the browser suite locally:
+
+```bash
+pnpm exec playwright install chromium firefox webkit
+```
+
+`pnpm test:integration` runs the real multi-tab browser transport suite for Chromium, Firefox,
+and Playwright WebKit. WebKit is used as the Safari-equivalent coverage target in CI. The WebRTC
+scenario is skipped automatically when the underlying WebKit runtime does not expose
+`RTCPeerConnection`.
 
 Run the self-hostable `@flockjs/relay` signaling server locally for WebRTC validation:
 
